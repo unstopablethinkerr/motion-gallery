@@ -1,0 +1,764 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Synaptic pruning in the brain</title>
+<style>
+  html, body { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; }
+  body.playing, body.playing * { cursor: none !important; }
+  #stage {
+    position: absolute; left: 50%; top: 50%;
+    width: 1080px; height: 1920px;
+    transform-origin: 50% 50%;
+    overflow: hidden;
+    background:
+      radial-gradient(ellipse 78% 58% at 50% 56%, rgba(20,32,56,0.50) 0%, rgba(14,22,40,0.34) 30%, rgba(9,14,26,0.16) 55%, rgba(5,7,13,0) 78%),
+      radial-gradient(ellipse 125% 95% at 50% 50%, #05070D 0%, #05070D 52%, #04060B 72%, #020307 100%);
+    font-family: Inter, "SF Pro Display", "SF Pro Text", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: geometricPrecision;
+  }
+  #scene { position: absolute; left: 0; top: 0; width: 1080px; height: 1920px; }
+  #text { position: absolute; inset: 0; pointer-events: none; }
+  .beat { position: absolute; visibility: hidden; color: rgba(255,255,255,0.95); }
+  .beat.h { font-weight: 700; letter-spacing: -0.025em; line-height: 1.08; }
+  .beat.b { font-weight: 500; letter-spacing: -0.005em; line-height: 1.24; }
+  .beat.cool { color: rgba(143,163,191,0.95); }
+  .line { display: block; white-space: nowrap; }
+  .li { display: inline-block; }
+  .w { display: inline-block; opacity: 0; will-change: transform, opacity, filter; }
+  .amber { color: #FFB547; }
+  #start {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    color: rgba(143,163,191,0.85); font-size: 42px; font-weight: 500; letter-spacing: 0.01em;
+    background: #05070D; cursor: pointer;
+  }
+  #start.hidden { display: none; }
+  #debug {
+    position: absolute; left: 90px; top: 130px; display: none;
+    font: 28px/1.3 Consolas, "SF Mono", monospace; color: #b8f5d0;
+    background: rgba(0,0,0,0.65); padding: 8px 14px; border-radius: 6px;
+  }
+  #debug.on { display: block; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <svg id="scene" viewBox="0 0 1080 1920" xmlns="http://www.w3.org/2000/svg"></svg>
+  <div id="text"></div>
+  <div id="start">Press Space to start</div>
+  <div id="debug"></div>
+</div>
+
+<script>
+(() => {
+'use strict';
+
+/* =====================================================================
+   CONFIG — every scene boundary lives here
+   ===================================================================== */
+const CONFIG = {
+  DURATION: 55.000,
+  SCENES: [
+    { name: 'Lead-in',        start:  0.0, end:  5.0 },
+    { name: 'Hook',           start:  5.0, end: 10.0 },
+    { name: 'What it is',     start: 10.0, end: 18.0 },
+    { name: 'How it works',   start: 18.0, end: 28.0 },
+    { name: 'Timeline',       start: 28.0, end: 38.0 },
+    { name: 'Why it matters', start: 38.0, end: 46.0 },
+    { name: 'Takeaway',       start: 46.0, end: 55.0 },
+  ],
+  HOW_STEPS: [[18.0, 21.2], [21.2, 24.4], [24.4, 28.0]],
+  GRAPH: { show: [28.4, 29.2, 37.4, 38.0], main: [29.2, 32.2], sens: [33.0, 34.4], pfc: [34.7, 36.3] },
+  FREEZE: [51.5, 53.0],          // ambient motion settles; last 2s hold still
+  SEED: 20260601,
+  NODE_COUNT: 84,
+  MIN_DIST: 58,
+  NET: { cx: 540, cy: 1080, rx: 420, ry: 370 },
+};
+
+/* Text beats. *word* = amber key phrase. */
+const BEATS = [
+  { t0: 5.60,  t1: 9.60,  k: 'h', size: 92,  top: 236, lines: ['Your brain deletes', 'connections *on purpose.*'] },
+  { t0: 6.95,  t1: 9.60,  k: 'b', size: 52,  top: 478, cool: true, lines: ['It\u2019s called *synaptic pruning.*'] },
+
+  { t0: 10.40, t1: 13.90, k: 'h', size: 110, top: 330, lines: ['*Use it* or lose it.'] },
+  { t0: 14.20, t1: 17.60, k: 'b', size: 58,  top: 300, lines: ['Connections are removed.', '*Neurons stay.*'] },
+
+  { t0: 18.35, t1: 21.00, k: 'b', size: 60, top: 268, left: 214, width: 786, align: 'left', lines: ['Active connections', 'get *stronger.*'] },
+  { t0: 21.45, t1: 24.20, k: 'b', size: 60, top: 268, left: 214, width: 786, align: 'left', lines: ['Weak ones', 'get *tagged.*'] },
+  { t0: 24.60, t1: 27.70, k: 'b', size: 60, top: 268, left: 214, width: 786, align: 'left', lines: ['*Microglia* clear', 'them away.'] },
+  { t0: 25.50, t1: 27.70, k: 'b', size: 40, top: 440, left: 214, width: 786, align: 'left', cool: true, lines: ['Microglia are the brain\u2019s immune cells.'] },
+
+  { t0: 29.40, t1: 37.50, k: 'b', size: 30, top: 1625, left: 190, width: 700, align: 'left', cool: true, lines: ['Illustrative curve, not exact data.'] },
+  { t0: 30.10, t1: 37.50, k: 'b', size: 42, top: 468,  left: 250, width: 700, align: 'left', lines: ['Peak: *early childhood*'] },
+  { t0: 33.00, t1: 37.50, k: 'b', size: 40, top: 1360, left: 252, width: 620, align: 'left', lines: ['Sensory and motor areas:', 'refine *first*'] },
+  { t0: 34.70, t1: 37.50, k: 'b', size: 40, top: 1478, left: 252, width: 620, align: 'left', lines: ['Prefrontal cortex (planning, judgment):', 'refines into the *mid-20s*'] },
+
+  { t0: 38.10, t1: 40.00, k: 'b', size: 56, top: 300, lines: ['Researchers link *too much*', '*or too little* pruning'] },
+  { t0: 40.10, t1: 41.85, k: 'b', size: 56, top: 300, lines: ['to conditions like', 'schizophrenia and autism,'] },
+  { t0: 41.95, t1: 43.80, k: 'b', size: 56, top: 300, lines: ['but the science is', '*still evolving.*'] },
+  { t0: 43.90, t1: 46.10, k: 'b', size: 56, top: 300, lines: ['Sleep appears to help the brain', 'keep *what matters.*'] },
+
+  { t0: 46.50, t1: 50.40, k: 'h', size: 88,  top: 300, lines: ['A smarter brain isn\u2019t one', 'with more connections.'] },
+  { t0: 50.80, t1: Infinity, k: 'h', size: 104, top: 300, lines: ['It\u2019s one with', '*better ones.*'] },
+];
+const ENTER = { h: { stagger: 0.10, dur: 0.70 }, b: { stagger: 0.08, dur: 0.50 } };
+const EXIT_DUR = 0.40;
+
+/* =====================================================================
+   Math + easing (one family)
+   ===================================================================== */
+const clamp01 = x => x < 0 ? 0 : x > 1 ? 1 : x;
+const prog = (t, a, b) => clamp01((t - a) / (b - a));
+const lerp = (a, b, k) => a + (b - a) * k;
+const eIOC = x => x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;   // easeInOutCubic
+const eOQ  = x => 1 - Math.pow(1 - x, 4);                                      // easeOutQuart
+const eIOS = x => -(Math.cos(Math.PI * x) - 1) / 2;                            // easeInOutSine
+const winE = (t, a, b, c, d) => eOQ(prog(t, a, b)) * (1 - eIOC(prog(t, c, d)));
+const winS = (t, a, b, c, d) => eIOC(prog(t, a, b)) * (1 - eIOC(prog(t, c, d)));
+const TAU = Math.PI * 2;
+const f1 = v => v.toFixed(1);
+
+// Integral of a trapezoid speed bump (keeps pulse phase continuous when speed changes)
+function trapInt(t, a, b, c, d) {
+  if (t <= a) return 0;
+  if (t <= b) return (t - a) * (t - a) / (2 * (b - a));
+  const A1 = (b - a) / 2;
+  if (t <= c) return A1 + (t - b);
+  const A2 = A1 + (c - b);
+  if (t <= d) { const x = t - c, L = d - c; return A2 + x - x * x / (2 * L); }
+  return A2 + (d - c) / 2;
+}
+
+const COOL = [143, 163, 191], AMB = [255, 181, 71];
+function mixColor(k) {
+  return 'rgb(' + Math.round(lerp(COOL[0], AMB[0], k)) + ',' + Math.round(lerp(COOL[1], AMB[1], k)) + ',' + Math.round(lerp(COOL[2], AMB[2], k)) + ')';
+}
+
+/* =====================================================================
+   Seeded RNG — layout identical every run, never used during playback
+   ===================================================================== */
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+const rng = mulberry32(CONFIG.SEED);
+
+/* =====================================================================
+   Network generation (once)
+   ===================================================================== */
+const { cx: CX, cy: CY, rx: RX, ry: RY } = CONFIG.NET;
+const nodes = [];
+for (let tries = 0; nodes.length < CONFIG.NODE_COUNT && tries < 40000; tries++) {
+  const a = rng() * TAU, r = Math.sqrt(rng());
+  const x = CX + Math.cos(a) * RX * r, y = CY + Math.sin(a) * RY * r;
+  let ok = true;
+  for (const n of nodes) {
+    const dx = n.x - x, dy = n.y - y;
+    if (dx * dx + dy * dy < CONFIG.MIN_DIST * CONFIG.MIN_DIST) { ok = false; break; }
+  }
+  if (!ok) continue;
+  const z = rng(), sc = rng();
+  const base = sc < 0.55 ? 9 : sc < 0.86 ? 13 : 18;
+  nodes.push({
+    x, y, z,
+    R: base * (0.7 + 0.6 * z) * 1.9,
+    op: 0.42 + 0.58 * z,
+    A: 1 + 2 * z,
+    w1: TAU / (6 + rng() * 5), w2: TAU / (7 + rng() * 5),
+    p1: rng() * TAU, p2: rng() * TAU,
+    dn: Math.min(1, Math.hypot((x - CX) / RX, (y - CY) / RY)),
+    px: x, py: y, vis: 0, amb: 0,
+  });
+}
+
+const edges = [];
+{
+  const seen = new Set();
+  nodes.forEach((n, i) => {
+    const d = [];
+    nodes.forEach((m, j) => { if (j !== i) d.push({ j, d: Math.hypot(m.x - n.x, m.y - n.y) }); });
+    d.sort((p, q) => p.d - q.d);
+    const k = 3 + (rng() < 0.4 ? 1 : 0);
+    for (let q = 0; q < k; q++) {
+      const o = d[q];
+      if (o.d > 210) break;
+      const a = Math.min(i, o.j), b = Math.max(i, o.j), key = a + '-' + b;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      edges.push({ a, b, len: o.d });
+    }
+  });
+}
+edges.forEach(e => {
+  const A = nodes[e.a], B = nodes[e.b];
+  const depth = (A.z + B.z) / 2;
+  e.baseOp = 0.14 + 0.30 * depth;
+  e.baseW = 0.9 + 1.0 * depth;
+  e.bend = (rng() - 0.5) * 0.45 * e.len;
+  const dx = B.x - A.x, dy = B.y - A.y, L = Math.hypot(dx, dy) || 1;
+  e.nx = -dy / L; e.ny = dx / L;
+  e.d1 = rng() * 1.6;
+  const r = rng();
+  e.cls = r < 0.20 ? 'strong' : r < 0.60 ? 'prune1' : 'neutral';
+  e.op = 0; e.w = e.baseW; e.amb = 0; e.alive = 1; e.vis = 0;
+  e.x1 = A.x; e.y1 = A.y; e.x2 = B.x; e.y2 = B.y; e.cx = (A.x + B.x) / 2; e.cy = (A.y + B.y) / 2;
+});
+
+// Allocate neutral edges into story roles
+const tagged = [];
+{
+  const neutral = edges.filter(e => e.cls === 'neutral');
+  for (let i = neutral.length - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); [neutral[i], neutral[j]] = [neutral[j], neutral[i]]; }
+  const pool = neutral.slice();
+  const take = (n, pred) => { const out = []; for (let i = 0; i < pool.length && out.length < n; i++) { if (pred(pool[i])) { out.push(pool[i]); pool.splice(i, 1); i--; } } return out; };
+  let tg = take(9, e => e.len > 80);
+  if (tg.length < 9) tg = tg.concat(take(9 - tg.length, () => true));
+  tg.forEach(e => { e.cls = 'tagged'; tagged.push(e); });
+  take(6, () => true).forEach((e, k) => { e.cls = 'boost'; e.k = k; });
+  take(8, () => true).forEach(e => { e.cls = 'prune3'; });
+  const rest = pool.slice();
+  rest.slice(0, Math.floor(rest.length * 0.45)).forEach(e => { e.cls = 'prune4'; });
+}
+
+// Tagged edges: order by angle, assign 3 per microglia blob
+const midBase = e => {
+  const A = nodes[e.a], B = nodes[e.b];
+  return [(A.x + B.x) / 2 + e.nx * e.bend * 0.5, (A.y + B.y) / 2 + e.ny * e.bend * 0.5];
+};
+tagged.sort((p, q) => {
+  const a = midBase(p), b = midBase(q);
+  return Math.atan2(a[1] - CY, a[0] - CX) - Math.atan2(b[1] - CY, b[0] - CX);
+});
+const BLOB_COUNT = Math.ceil(tagged.length / 3);
+const blobs = [];
+for (let b = 0; b < BLOB_COUNT; b++) {
+  const targets = tagged.slice(b * 3, b * 3 + 3);
+  const tb = 24.45 + b * 0.15;
+  targets.forEach((e, s) => { e.absA = tb + 0.8 + 0.95 * s; });
+  const out = (p) => {
+    const dx = p[0] - CX, dy = p[1] - CY, L = Math.hypot(dx, dy) || 1;
+    return [Math.min(980, Math.max(100, p[0] + dx / L * 320)), Math.min(1560, Math.max(660, p[1] + dy / L * 320))];
+  };
+  blobs.push({
+    targets, tb,
+    S: out(midBase(targets[0])), E: out(midBase(targets[targets.length - 1])),
+    ph: rng() * TAU, ph2: rng() * TAU,
+  });
+}
+tagged.forEach((e, idx) => { e.ta = 21.7 + idx * 0.13; e.absK = 0; });
+
+/* =====================================================================
+   SVG construction (all elements built up front)
+   ===================================================================== */
+const NS = 'http://www.w3.org/2000/svg';
+const FONT = 'Inter, "SF Pro Display", -apple-system, "Segoe UI", Helvetica, Arial, sans-serif';
+function S(tag, attrs, parent) {
+  const el = document.createElementNS(NS, tag);
+  for (const k in attrs) el.setAttribute(k, attrs[k]);
+  if (parent) parent.appendChild(el);
+  return el;
+}
+const svg = document.getElementById('scene');
+const defs = S('defs', {}, svg);
+
+function radial(id, stops) {
+  const g = S('radialGradient', { id, cx: '50%', cy: '50%', r: '50%' }, defs);
+  stops.forEach(([o, c, a]) => S('stop', { offset: o, 'stop-color': c, 'stop-opacity': a }, g));
+}
+radial('nodeCool',  [['0%', '#EEF3FF', 1], ['16%', '#C9D6EB', 0.95], ['38%', '#8FA3BF', 0.42], ['68%', '#8FA3BF', 0.09], ['100%', '#8FA3BF', 0]]);
+radial('nodeAmber', [['0%', '#FFF3DC', 1], ['16%', '#FFCB78', 0.95], ['38%', '#FFB547', 0.45], ['68%', '#FFB547', 0.10], ['100%', '#FFB547', 0]]);
+radial('pulseCool', [['0%', '#F2F6FF', 0.95], ['30%', '#BFD0EA', 0.55], ['100%', '#8FA3BF', 0]]);
+radial('pulseAmber',[['0%', '#FFF6E4', 1], ['30%', '#FFC566', 0.65], ['100%', '#FFB547', 0]]);
+radial('tagHalo',   [['0%', '#FF6B6B', 0.45], ['60%', '#FF6B6B', 0.12], ['100%', '#FF6B6B', 0]]);
+radial('dotGlow',   [['0%', '#FFF6E4', 1], ['25%', '#FFC566', 0.8], ['60%', '#FFB547', 0.25], ['100%', '#FFB547', 0]]);
+radial('blobGrad',  [['0%', '#EAF1FF', 0.50], ['55%', '#C3D3EE', 0.30], ['100%', '#A4BBDF', 0.14]]);
+
+const soft = S('filter', { id: 'soft', x: '-60%', y: '-60%', width: '220%', height: '220%' }, defs);
+S('feGaussianBlur', { in: 'SourceGraphic', stdDeviation: '6', result: 'b' }, soft);
+const fm = S('feMerge', {}, soft);
+S('feMergeNode', { in: 'b' }, fm); S('feMergeNode', { in: 'SourceGraphic' }, fm);
+
+// Layers (back to front)
+const netG = S('g', {}, svg);
+const glowG = S('g', {}, netG);
+const edgesG = S('g', {}, netG);
+const tagsG = S('g', {}, netG);
+const pulsesG = S('g', {}, netG);
+const nodesG = S('g', {}, netG);
+const microG = S('g', { filter: 'url(#soft)' }, netG);
+const moonG = S('g', { filter: 'url(#soft)', opacity: 0 }, svg);
+const graphG = S('g', { opacity: 0 }, svg);
+const stepG = S('g', { opacity: 0 }, svg);
+
+// Edges
+edges.forEach(e => {
+  e.ambCap = e.cls === 'strong' || e.cls === 'boost';
+  if (e.ambCap) {
+    e.g1 = S('path', { fill: 'none', stroke: '#FFB547', 'stroke-linecap': 'round', opacity: 0 }, glowG);
+    e.g2 = S('path', { fill: 'none', stroke: '#FFB547', 'stroke-linecap': 'round', opacity: 0 }, glowG);
+  }
+  e.el = S('path', { fill: 'none', 'stroke-linecap': 'round', 'stroke-opacity': 0 }, edgesG);
+});
+
+// Tags (complement proteins)
+tagged.forEach(e => {
+  e.tagG = S('g', { opacity: 0 }, tagsG);
+  e.tagRing = S('circle', { r: 6, fill: 'none', stroke: '#FF6B6B', 'stroke-width': 2, opacity: 0 }, e.tagG);
+  S('circle', { r: 15, fill: 'url(#tagHalo)' }, e.tagG);
+  S('circle', { r: 5, fill: '#FF6B6B', 'fill-opacity': 0.82 }, e.tagG);
+});
+
+// Signal pulses
+const pulses = [];
+{
+  const addPulse = (e, ph) => {
+    const p = { e, ph, sp: 0.22 + rng() * 0.2, boosted: e.ambCap };
+    p.cool = S('circle', { r: 9, fill: 'url(#pulseCool)', opacity: 0 }, pulsesG);
+    if (e.ambCap) p.amb = S('circle', { r: 11, fill: 'url(#pulseAmber)', opacity: 0 }, pulsesG);
+    pulses.push(p);
+  };
+  edges.forEach(e => {
+    if (e.cls === 'strong') addPulse(e, rng());
+    if (e.cls === 'boost') { const ph = rng(); addPulse(e, ph); addPulse(e, ph + 0.5); }
+  });
+  const quiet = edges.filter(e => e.cls === 'neutral' || e.cls === 'prune4');
+  for (let i = 0; i < Math.min(16, quiet.length); i++) addPulse(quiet[Math.floor(rng() * quiet.length)], rng());
+}
+
+// Nodes
+nodes.forEach(n => {
+  n.c1 = S('circle', { cx: n.x, cy: n.y, r: n.R, fill: 'url(#nodeCool)', opacity: 0 }, nodesG);
+  n.c2 = S('circle', { cx: n.x, cy: n.y, r: n.R, fill: 'url(#nodeAmber)', opacity: 0 }, nodesG);
+});
+
+// Microglia
+blobs.forEach(B => {
+  B.g = S('g', { opacity: 0 }, microG);
+  B.branches = [];
+  for (let j = 0; j < 5; j++) B.branches.push(S('path', { fill: 'none', stroke: '#D7E3F7', 'stroke-opacity': 0.55, 'stroke-width': 2, 'stroke-linecap': 'round' }, B.g));
+  B.body = S('path', { fill: 'url(#blobGrad)', stroke: '#DCE7F8', 'stroke-opacity': 0.35, 'stroke-width': 1.5 }, B.g);
+});
+
+// Moon (sleep)
+{
+  const mx = 860, my = 690, r = 44;
+  S('path', {
+    d: `M${mx} ${my - r} A${r} ${r} 0 1 0 ${mx} ${my + r} A${r * 0.62} ${r} 0 1 1 ${mx} ${my - r}Z`,
+    fill: '#DCE6F5', 'fill-opacity': 0.85, transform: `rotate(-18 ${mx} ${my})`,
+  }, moonG);
+}
+
+// Step UI
+const STEP = { cx: 130, cy: 343, r: 44 };
+S('circle', { cx: STEP.cx, cy: STEP.cy, r: STEP.r, fill: '#FFB547', 'fill-opacity': 0.06, stroke: '#FFB547', 'stroke-width': 3 }, stepG);
+const stepNums = [1, 2, 3].map(n => {
+  const el = S('text', { x: STEP.cx, y: STEP.cy + 16, 'text-anchor': 'middle', 'font-family': FONT, 'font-size': 46, 'font-weight': 700, fill: '#FFB547', opacity: 0 }, stepG);
+  el.textContent = String(n);
+  return el;
+});
+
+// Graph
+const G = { x0: 190, x1: 960, yt: 600, yb: 1180 };
+const gx = u => G.x0 + u * (G.x1 - G.x0);
+const gy = v => G.yb - v * (G.yb - G.yt);
+const gShape = (u, p, k) => u <= 0 ? 0 : Math.pow((u / p) * Math.exp(1 - u / p), k);
+const fMain = u => 0.14 + 0.82 * gShape(u, 0.16, 0.36);
+const fSens = u => 0.10 + 0.70 * gShape(u, 0.09, 0.35);
+const fPfc  = u => 0.08 + 0.64 * gShape(u, 0.30, 0.26);
+function curveD(fn) {
+  let d = '';
+  for (let i = 0; i <= 240; i++) { const u = i / 240; d += (i ? 'L' : 'M') + f1(gx(u)) + ' ' + f1(gy(fn(u))); }
+  return d;
+}
+function clipRect(id) {
+  const cp = S('clipPath', { id }, defs);
+  return S('rect', { x: G.x0 - 14, y: G.yt - 80, width: 0, height: G.yb - G.yt + 120 }, cp);
+}
+const clipMain = clipRect('clipMain'), clipSens = clipRect('clipSens'), clipPfc = clipRect('clipPfc');
+const axisStyle = { stroke: '#8FA3BF', 'stroke-opacity': 0.45, 'stroke-width': 2, 'stroke-linecap': 'round', fill: 'none' };
+S('path', Object.assign({ d: `M${G.x0} ${G.yt - 30} L${G.x0} ${G.yb} L${G.x1 + 14} ${G.yb}` }, axisStyle), graphG);
+const labelAttrs = (x, y, anchor) => ({ x, y, 'text-anchor': anchor, 'font-family': FONT, 'font-size': 36, 'font-weight': 500, fill: '#8FA3BF', 'fill-opacity': 0.9 });
+[['Birth', 0], ['Childhood', 0.30], ['Teens', 0.62], ['20s', 0.92]].forEach(([txt, u]) => {
+  S('path', Object.assign({ d: `M${f1(gx(u))} ${G.yb} L${f1(gx(u))} ${G.yb + 12}` }, axisStyle), graphG);
+  S('text', labelAttrs(gx(u), G.yb + 56, 'middle'), graphG).textContent = txt;
+});
+S('text', Object.assign(labelAttrs(575, 1300, 'middle'), { fill: '#FFFFFF', 'fill-opacity': 0.72, 'font-size': 34 }), graphG).textContent = 'Age';
+S('text', Object.assign(labelAttrs(0, 0, 'middle'), { fill: '#FFFFFF', 'fill-opacity': 0.72, 'font-size': 34, transform: `translate(128 ${(G.yt + G.yb) / 2}) rotate(-90)` }), graphG).textContent = 'Connections';
+
+const sensG = S('g', { 'clip-path': 'url(#clipSens)' }, graphG);
+S('path', { d: curveD(fSens), fill: 'none', stroke: '#8FA3BF', 'stroke-opacity': 0.85, 'stroke-width': 3.5, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, sensG);
+const pfcG = S('g', { 'clip-path': 'url(#clipPfc)' }, graphG);
+S('path', { d: curveD(fPfc), fill: 'none', stroke: '#FFB547', 'stroke-opacity': 0.55, 'stroke-width': 3.5, 'stroke-dasharray': '2 11', 'stroke-linecap': 'round' }, pfcG);
+const mainG = S('g', { 'clip-path': 'url(#clipMain)' }, graphG);
+const mainD = curveD(fMain);
+S('path', { d: mainD, fill: 'none', stroke: '#FFB547', 'stroke-opacity': 0.08, 'stroke-width': 22, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, mainG);
+S('path', { d: mainD, fill: 'none', stroke: '#FFB547', 'stroke-opacity': 0.20, 'stroke-width': 11, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, mainG);
+S('path', { d: mainD, fill: 'none', stroke: '#FFB547', 'stroke-width': 5, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, mainG);
+const PEAK_U = 0.16;
+const peakG = S('g', { opacity: 0 }, graphG);
+S('path', { d: `M${f1(gx(PEAK_U))} ${f1(gy(fMain(PEAK_U)) + 18)} L${f1(gx(PEAK_U))} ${G.yb}`, stroke: '#FFB547', 'stroke-opacity': 0.3, 'stroke-width': 2, 'stroke-dasharray': '4 8', fill: 'none' }, peakG);
+S('circle', { cx: gx(PEAK_U), cy: gy(fMain(PEAK_U)), r: 12, fill: 'none', stroke: '#FFB547', 'stroke-width': 2.5 }, peakG);
+const mkDot = (grad, R, core) => {
+  const g = S('g', { opacity: 0 }, graphG);
+  S('circle', { r: R, fill: `url(#${grad})` }, g);
+  S('circle', { r: core, fill: '#FFF6E4' }, g);
+  return g;
+};
+const dotMain = mkDot('dotGlow', 26, 6), dotSens = mkDot('pulseCool', 16, 3.5), dotPfc = mkDot('pulseAmber', 16, 3.5);
+const sw1 = S('path', { d: 'M190 1385 L232 1385', stroke: '#8FA3BF', 'stroke-opacity': 0.85, 'stroke-width': 4, 'stroke-linecap': 'round', opacity: 0 }, graphG);
+const sw2 = S('path', { d: 'M190 1503 L234 1503', stroke: '#FFB547', 'stroke-opacity': 0.7, 'stroke-width': 4, 'stroke-dasharray': '2 11', 'stroke-linecap': 'round', opacity: 0 }, graphG);
+
+/* =====================================================================
+   Text construction
+   ===================================================================== */
+const textRoot = document.getElementById('text');
+BEATS.forEach(bt => {
+  const el = document.createElement('div');
+  el.className = 'beat ' + bt.k + (bt.cool ? ' cool' : '');
+  const width = bt.width || 920;
+  Object.assign(el.style, {
+    left: (bt.left || 80) + 'px', top: bt.top + 'px', width: width + 'px',
+    textAlign: bt.align || 'center', fontSize: bt.size + 'px',
+  });
+  bt.words = [];
+  let inAmber = false;
+  const inners = [];
+  bt.lines.forEach(line => {
+    const ld = document.createElement('div'); ld.className = 'line';
+    const li = document.createElement('span'); li.className = 'li';
+    line.split(' ').forEach((tok, i) => {
+      let word = tok;
+      if (word.startsWith('*')) { word = word.slice(1); inAmber = true; }
+      const ends = word.endsWith('*'); if (ends) word = word.slice(0, -1);
+      const sp = document.createElement('span');
+      sp.className = 'w' + (inAmber ? ' amber' : '');
+      sp.textContent = word;
+      if (i > 0) li.appendChild(document.createTextNode(' '));
+      li.appendChild(sp);
+      bt.words.push({ el: sp, last: '' });
+      if (ends) inAmber = false;
+    });
+    ld.appendChild(li); el.appendChild(ld); inners.push(li);
+  });
+  textRoot.appendChild(el);
+  bt.el = el; bt.inners = inners; bt.width = width; bt.shown = false;
+});
+// Shrink a beat only if a line would overflow its safe width (keeps 2-line max)
+function fitText() {
+  BEATS.forEach(bt => {
+    bt.el.style.fontSize = bt.size + 'px';
+    let maxW = 0;
+    bt.inners.forEach(li => { maxW = Math.max(maxW, li.offsetWidth); });
+    if (maxW > bt.width) bt.el.style.fontSize = Math.floor(bt.size * (bt.width - 6) / maxW) + 'px';
+  });
+}
+
+/* =====================================================================
+   Render: everything is a pure function of t
+   ===================================================================== */
+function edgeState(e, t) {
+  let op = e.baseOp, w = e.baseW, amb = 0, alive = 1, k;
+  switch (e.cls) {
+    case 'strong':
+      amb = eIOC(prog(t, 11 + e.d1, 13.2 + e.d1)); op = lerp(op, 0.88, amb); w = lerp(w, w + 1.9, amb); break;
+    case 'boost':
+      amb = eIOC(prog(t, 18.4 + e.k * 0.12, 19.9 + e.k * 0.12)); op = lerp(op, 0.88, amb); w = lerp(w, w + 1.9, amb); break;
+    case 'prune1':
+      k = eIOC(prog(t, 10.8 + e.d1, 12.9 + e.d1)); alive = 1 - k; w *= 1 - 0.6 * k; break;
+    case 'tagged':
+      op *= lerp(1, 0.72, eIOC(prog(t, e.ta, e.ta + 0.6)));
+      k = eIOC(prog(t, e.absA, e.absA + 0.5)); e.absK = k; alive = 1 - k; w *= 1 - 0.5 * k; break;
+    case 'prune3':
+      k = eIOC(prog(t, 44.2 + e.d1 * 0.8, 45.6 + e.d1 * 0.8)); alive = 1 - k; w *= 1 - 0.6 * k; break;
+    case 'prune4':
+      k = eIOC(prog(t, 46.2 + e.d1, 48.0 + e.d1)); alive = 1 - k; w *= 1 - 0.6 * k; break;
+  }
+  e.op = op * alive; e.w = w; e.amb = amb; e.alive = alive;
+}
+const bez = (e, u) => {
+  const v = 1 - u;
+  return [v * v * e.x1 + 2 * v * u * e.cx + u * u * e.x2, v * v * e.y1 + 2 * v * u * e.cy + u * u * e.y2];
+};
+
+function blobRadius(B, th, t, R) {
+  return R * (1 + 0.13 * Math.sin(3 * th + B.ph + 0.9 * t) + 0.07 * Math.sin(5 * th - 0.7 * t + B.ph2) + 0.05 * Math.sin(2 * th + 0.5 * t));
+}
+function closedCurve(pts) {
+  const n = pts.length;
+  let d = 'M' + f1(pts[0][0]) + ' ' + f1(pts[0][1]);
+  for (let i = 0; i < n; i++) {
+    const p0 = pts[(i - 1 + n) % n], p1 = pts[i], p2 = pts[(i + 1) % n], p3 = pts[(i + 2) % n];
+    d += 'C' + f1(p1[0] + (p2[0] - p0[0]) / 6) + ' ' + f1(p1[1] + (p2[1] - p0[1]) / 6) + ' ' +
+         f1(p2[0] - (p3[0] - p1[0]) / 6) + ' ' + f1(p2[1] - (p3[1] - p1[1]) / 6) + ' ' + f1(p2[0]) + ' ' + f1(p2[1]);
+  }
+  return d + 'Z';
+}
+const lerp2 = (p, q, k) => [lerp(p[0], q[0], k), lerp(p[1], q[1], k)];
+
+function renderBlobs(t) {
+  blobs.forEach(B => {
+    const L = t - B.tb;
+    if (L < 0 || L > 4.0) { B.g.setAttribute('opacity', 0); return; }
+    const op = eOQ(prog(L, 0, 0.5)) * (1 - eIOC(prog(L, 3.3, 3.9)));
+    const T = B.targets.map(e => bez(e, 0.5));
+    while (T.length < 3) T.push(T[T.length - 1]);
+    let P;
+    if (L < 0.1) P = B.S;
+    else if (L < 0.8) P = lerp2(B.S, T[0], eIOC(prog(L, 0.1, 0.8)));
+    else if (L < 1.3) P = T[0];
+    else if (L < 1.75) P = lerp2(T[0], T[1], eIOC(prog(L, 1.3, 1.75)));
+    else if (L < 2.25) P = T[1];
+    else if (L < 2.7) P = lerp2(T[1], T[2], eIOC(prog(L, 2.25, 2.7)));
+    else if (L < 3.2) P = T[2];
+    else P = lerp2(T[2], B.E, eIOC(prog(L, 3.2, 4.0)));
+    let bump = 0;
+    for (let s = 0; s < 3; s++) { const a = 0.8 + 0.95 * s; bump += Math.sin(Math.PI * prog(L, a, a + 0.5)); }
+    const R = 30 * (1 + 0.14 * bump);
+    const px = P[0] + 2 * Math.sin(t * 1.3 + B.ph), py = P[1] + 2 * Math.cos(t * 1.1 + B.ph);
+    const pts = [];
+    for (let i = 0; i < 18; i++) { const th = TAU * i / 18, r = blobRadius(B, th, t, R); pts.push([px + Math.cos(th) * r, py + Math.sin(th) * r]); }
+    B.body.setAttribute('d', closedCurve(pts));
+    B.branches.forEach((br, j) => {
+      const a = B.ph + j * TAU / 5 + 0.2 * Math.sin(t * 0.6 + j);
+      const r0 = blobRadius(B, a, t, R) * 0.92, Lb = R * 0.85;
+      const dx = Math.cos(a), dy = Math.sin(a), nx = -dy, ny = dx;
+      const sx = px + dx * r0, sy = py + dy * r0, ex = sx + dx * Lb, ey = sy + dy * Lb;
+      const wv = 6 * Math.sin(t * 1.7 + j * 1.3);
+      br.setAttribute('d', 'M' + f1(sx) + ' ' + f1(sy) + 'C' +
+        f1(sx + dx * Lb * 0.33 + nx * wv) + ' ' + f1(sy + dy * Lb * 0.33 + ny * wv) + ' ' +
+        f1(sx + dx * Lb * 0.66 - nx * wv) + ' ' + f1(sy + dy * Lb * 0.66 - ny * wv) + ' ' + f1(ex) + ' ' + f1(ey));
+    });
+    B.g.setAttribute('opacity', (op * 0.95).toFixed(3));
+  });
+}
+
+function renderGraph(t) {
+  const Gc = CONFIG.GRAPH;
+  const gOp = winS(t, ...Gc.show);
+  graphG.setAttribute('opacity', gOp.toFixed(3));
+  if (gOp <= 0) return;
+  const W = G.x1 - G.x0;
+  const draw = (clip, dot, fn, [a, b]) => {
+    const p = prog(t, a, b);                      // linear draw
+    clip.setAttribute('width', f1(14 + W * p));
+    const dOp = (p > 0 ? eOQ(prog(t, a, a + 0.25)) : 0) * (1 - eIOC(prog(t, b, b + 0.5)));
+    dot.setAttribute('opacity', dOp.toFixed(3));
+    if (dOp > 0) dot.setAttribute('transform', `translate(${f1(gx(p))} ${f1(gy(fn(p)))})`);
+  };
+  draw(clipMain, dotMain, fMain, Gc.main);
+  draw(clipSens, dotSens, fSens, Gc.sens);
+  draw(clipPfc, dotPfc, fPfc, Gc.pfc);
+  peakG.setAttribute('opacity', eOQ(prog(t, 29.75, 30.25)).toFixed(3));
+  sw1.setAttribute('opacity', eOQ(prog(t, 33.0, 33.5)).toFixed(3));
+  sw2.setAttribute('opacity', eOQ(prog(t, 34.7, 35.2)).toFixed(3));
+}
+
+function renderStep(t) {
+  const H = CONFIG.HOW_STEPS;
+  stepG.setAttribute('opacity', winE(t, H[0][0] + 0.1, H[0][0] + 0.6, H[2][1] - 0.5, H[2][1]).toFixed(3));
+  stepNums.forEach((el, i) => {
+    const [a, b] = H[i];
+    const p = i === 2 ? winE(t, a + 0.1, a + 0.5, b - 0.5, b) : winE(t, a + 0.1, a + 0.5, b - 0.3, b + 0.1);
+    el.setAttribute('opacity', p.toFixed(3));
+  });
+}
+
+function renderText(t) {
+  BEATS.forEach(bt => {
+    const active = t >= bt.t0 && t <= bt.t1;
+    if (!active) {
+      if (bt.shown) { bt.el.style.visibility = 'hidden'; bt.shown = false; }
+      return;
+    }
+    if (!bt.shown) { bt.el.style.visibility = 'visible'; bt.shown = true; }
+    const cfg = ENTER[bt.k];
+    const ex = bt.t1 === Infinity ? 0 : eIOC(prog(t, bt.t1 - EXIT_DUR, bt.t1));
+    bt.words.forEach((w, i) => {
+      const s = bt.t0 + i * cfg.stagger;
+      const p = eOQ(prog(t, s, s + cfg.dur));
+      const y = 24 * (1 - p) - 12 * ex, blur = 8 * (1 - p), op = p * (1 - ex);
+      const key = y.toFixed(2) + '|' + blur.toFixed(2) + '|' + op.toFixed(3);
+      if (key === w.last) return;
+      w.last = key;
+      w.el.style.transform = 'translate3d(0,' + y.toFixed(2) + 'px,0)';
+      w.el.style.filter = blur > 0.02 ? 'blur(' + blur.toFixed(2) + 'px)' : 'none';
+      w.el.style.opacity = op.toFixed(3);
+    });
+  });
+}
+
+function sceneAt(t) {
+  for (const s of CONFIG.SCENES) if (t >= s.start && t < s.end) return s.name;
+  return CONFIG.SCENES[CONFIG.SCENES.length - 1].name;
+}
+
+function render(t) {
+  const F = 1 - eIOS(prog(t, CONFIG.FREEZE[0], CONFIG.FREEZE[1]));   // ambient motion amount
+  const push = 1 + 0.035 * eIOS(prog(t, 0, CONFIG.FREEZE[1]));       // slow camera push-in
+  const breath = 1 + 0.004 * F * Math.sin(TAU * t / 7);
+  netG.setAttribute('transform', `translate(${CX} ${CY}) scale(${(push * breath).toFixed(5)}) translate(${-CX} ${-CY})`);
+
+  const tl = eIOC(prog(t, 28.0, 28.8)) * (1 - eIOC(prog(t, 37.6, 38.6)));   // timeline dim
+  const sw = winS(t, 43.9, 44.8, 45.7, 46.5);                                // sleep dim + pulse
+  const nv = (1 - 0.85 * tl) * (1 - 0.38 * sw + 0.09 * sw * Math.sin(TAU * (t - 44.0) / 1.8));
+  netG.setAttribute('opacity', nv.toFixed(4));
+  moonG.setAttribute('opacity', (0.85 * winS(t, 43.9, 44.7, 45.6, 46.3)).toFixed(3));
+
+  const lead = 0.12 * eIOS(prog(t, 0, 5));
+  nodes.forEach(n => {
+    n.px = n.x + F * n.A * Math.sin(t * n.w1 + n.p1);
+    n.py = n.y + F * n.A * Math.cos(t * n.w2 + n.p2);
+    n.vis = t < 5 ? lead : 0.12 + 0.88 * eOQ(prog(t, 5 + n.dn * 2.2, 6.1 + n.dn * 2.2));
+    n.amb = 0;
+  });
+
+  const gb = 1 + 0.05 * Math.sin(TAU * t / 3.4);   // glow breathing
+  edges.forEach(e => {
+    const A = nodes[e.a], B = nodes[e.b];
+    edgeState(e, t);
+    e.vis = Math.min(A.vis, B.vis);
+    e.x1 = A.px; e.y1 = A.py; e.x2 = B.px; e.y2 = B.py;
+    e.cx = (A.px + B.px) / 2 + e.nx * e.bend;
+    e.cy = (A.py + B.py) / 2 + e.ny * e.bend;
+    const o = e.op * e.vis;
+    if (o > 0.002) {
+      const d = 'M' + f1(e.x1) + ' ' + f1(e.y1) + 'Q' + f1(e.cx) + ' ' + f1(e.cy) + ' ' + f1(e.x2) + ' ' + f1(e.y2);
+      e.el.setAttribute('d', d);
+      e.el.setAttribute('stroke', mixColor(e.amb));
+      e.el.setAttribute('stroke-width', e.w.toFixed(2));
+      e.el.setAttribute('stroke-opacity', o.toFixed(3));
+      if (e.g1) {
+        const go = e.amb * e.vis * e.alive * gb;
+        e.g1.setAttribute('d', d); e.g1.setAttribute('stroke-width', (e.w * 5.5).toFixed(2)); e.g1.setAttribute('opacity', (0.07 * go).toFixed(3));
+        e.g2.setAttribute('d', d); e.g2.setAttribute('stroke-width', (e.w * 2.6).toFixed(2)); e.g2.setAttribute('opacity', (0.20 * go).toFixed(3));
+      }
+    } else {
+      e.el.setAttribute('stroke-opacity', 0);
+      if (e.g1) { e.g1.setAttribute('opacity', 0); e.g2.setAttribute('opacity', 0); }
+    }
+    const a = e.amb * e.alive;
+    if (a > A.amb) A.amb = a;
+    if (a > B.amb) B.amb = a;
+  });
+
+  tagged.forEach(e => {
+    const p = prog(t, e.ta, e.ta + 0.45);
+    if (p <= 0 || e.absK >= 1) { e.tagG.setAttribute('opacity', 0); return; }
+    const rp = prog(t, e.ta, e.ta + 1.0);
+    const k = e.absK;
+    const s = eOQ(p) * (1 + 0.22 * Math.sin(Math.PI * p)) * (1 + 0.12 * Math.sin(Math.PI * rp)) * (1 - 0.6 * k);
+    const m = bez(e, 0.5);
+    e.tagG.setAttribute('transform', `translate(${f1(m[0])} ${f1(m[1])}) scale(${s.toFixed(3)})`);
+    e.tagG.setAttribute('opacity', (0.95 * (1 - k) * e.vis).toFixed(3));
+    e.tagRing.setAttribute('r', (5 + 22 * eOQ(rp)).toFixed(2));
+    e.tagRing.setAttribute('opacity', (rp > 0 && rp < 1 ? 0.55 * (1 - rp) : 0).toFixed(3));
+  });
+
+  const pg = F * (1 - tl);
+  const TI = trapInt(t, 18.3, 19.0, 20.9, 21.6);
+  pulses.forEach(p => {
+    const e = p.e;
+    const ph = p.sp * (p.boosted ? t + 1.6 * TI : t) + p.ph;
+    const u = ph - Math.floor(ph);
+    const base = pg * e.vis * e.alive * Math.sin(Math.PI * u);
+    let co, ao = 0;
+    if (p.amb) { co = base * 0.5 * (1 - e.amb); ao = base * e.amb; }
+    else co = base * 0.42;
+    if (co > 0.003 || ao > 0.003) {
+      const pt = bez(e, u), X = f1(pt[0]), Y = f1(pt[1]);
+      p.cool.setAttribute('cx', X); p.cool.setAttribute('cy', Y);
+      if (p.amb) { p.amb.setAttribute('cx', X); p.amb.setAttribute('cy', Y); }
+    }
+    p.cool.setAttribute('opacity', co.toFixed(3));
+    if (p.amb) p.amb.setAttribute('opacity', ao.toFixed(3));
+  });
+
+  const nb = winS(t, 14.2, 14.8, 17.4, 18.0);   // "Neurons stay": nodes brighten
+  nodes.forEach(n => {
+    const X = f1(n.px), Y = f1(n.py), R = f1(n.R * (1 + 0.06 * nb));
+    n.c1.setAttribute('cx', X); n.c1.setAttribute('cy', Y); n.c1.setAttribute('r', R);
+    n.c1.setAttribute('opacity', Math.min(1, n.op * n.vis * (1 + 0.25 * nb)).toFixed(3));
+    const ao = Math.min(1, n.amb * 0.9) * n.vis * gb;
+    n.c2.setAttribute('opacity', ao.toFixed(3));
+    if (ao > 0.002) { n.c2.setAttribute('cx', X); n.c2.setAttribute('cy', Y); n.c2.setAttribute('r', R); }
+  });
+
+  renderBlobs(t);
+  renderStep(t);
+  renderGraph(t);
+  renderText(t);
+  if (debugOn) debugEl.textContent = t.toFixed(3) + 's  ' + sceneAt(t);
+}
+
+/* =====================================================================
+   Playback: master clock = performance.now()
+   ===================================================================== */
+const stage = document.getElementById('stage');
+const startEl = document.getElementById('start');
+const debugEl = document.getElementById('debug');
+let state = 'idle', t0 = 0, curT = 0, dirty = true, debugOn = false;
+
+function fitStage() {
+  const s = Math.min(window.innerWidth / 1080, window.innerHeight / 1920);
+  stage.style.transform = `translate(-50%, -50%) scale(${s})`;
+}
+function start() {
+  startEl.classList.add('hidden');
+  document.body.classList.add('playing');
+  t0 = performance.now(); curT = 0; state = 'playing';
+}
+function reset() {
+  state = 'idle'; curT = 0;
+  startEl.classList.remove('hidden');
+  document.body.classList.remove('playing');
+  dirty = true;
+}
+function loop(now) {
+  if (state === 'playing') {
+    curT = (now - t0) / 1000;
+    if (curT >= CONFIG.DURATION) { curT = CONFIG.DURATION; state = 'ended'; }
+    render(curT);
+  } else if (dirty) {
+    render(curT); dirty = false;
+  }
+  requestAnimationFrame(loop);
+}
+
+window.addEventListener('keydown', ev => {
+  if (ev.code === 'Space' || ev.key === ' ') {
+    ev.preventDefault();
+    if (state !== 'playing') start();
+  } else if (ev.code === 'KeyR') {
+    reset();
+  } else if (ev.code === 'KeyD') {
+    debugOn = !debugOn; debugEl.classList.toggle('on', debugOn); dirty = true;
+    if (!debugOn) debugEl.textContent = '';
+  }
+});
+window.addEventListener('click', () => { if (state !== 'playing') start(); });
+window.addEventListener('resize', fitStage);
+
+fitStage();
+fitText();
+render(0);
+requestAnimationFrame(loop);
+
+/* =====================================================================
+   Timeline check
+   ===================================================================== */
+const total = CONFIG.SCENES.reduce((sum, s) => sum + (s.end - s.start), 0);
+const contiguous = CONFIG.SCENES.every((s, i) => i === 0 ? s.start === 0 : s.start === CONFIG.SCENES[i - 1].end);
+console.log('Scene durations sum: ' + total.toFixed(3) + 's');
+console.log('Equals exactly 55.000s: ' + (Math.abs(total - 55) < 1e-9 && contiguous && CONFIG.SCENES[CONFIG.SCENES.length - 1].end === CONFIG.DURATION));
+console.log('Network: ' + nodes.length + ' nodes, ' + edges.length + ' connections');
+})();
+</script>
+</body>
+</html>

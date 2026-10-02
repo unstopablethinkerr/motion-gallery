@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dunning-Kruger: What's Actually True</title>
+<!--
+=====================================================================
+ DUNNING-KRUGER: WHAT'S ACTUALLY TRUE  —  50 s motion graphics explainer
+=====================================================================
+ SCENE TIMINGS (seconds). Every keyframe lives in render(), grouped
+ under a matching "SCENE" comment, so retiming = editing numbers there.
+ Caption windows are in the CAPS table ([id, start, end]).
+
+   0.0 –  5.0  HOOK            Title slams in, meme curve draws, labels pop
+   5.0 – 10.0  MYTH BUSTED     MYTH stamp (5.25), glitch (6.0), dissolve (6.6–7.4)
+  10.0 – 20.0  THE REAL STUDY  Header, 3 task icons (11.0), axes (12), actual line (13),
+                               self-estimate (14.6), bottom-quartile gap (16.6)
+  20.0 – 26.0  FORGOTTEN HALF  Zoom into top quartile (20.3–21.8), zoom out (25.2)
+  26.0 – 40.0  THE TWIST       "But wait…" (26.3), random dots (28.5) rearrange (30.5–33),
+                               chart redraws (33.2), chips (35.5 / 36.2), artifact caption (36.8)
+  40.0 – 47.0  WHAT SURVIVES   Chart shrinks, self-estimate line morphs to a smaller gap
+  47.0 – 50.0  TAKEAWAY        Closing lines, fade, Replay button at 50.0
+
+ CONTROLS:  Space = pause/play   ← / → = seek 2 s   R = replay
+            Add ?t=23 to the URL to start at 23 s (handy while editing).
+
+ DATA NOTE: quartile values are rounded approximations of the pattern
+ reported by Kruger & Dunning (1999): bottom quartile scored ~12th
+ percentile but guessed ~62nd; top quartile scored ~86th, guessed ~74th.
+ The "What survives" chart is illustrative, not a specific dataset.
+
+ RECORD AS MP4:
+   • Open the file in Chrome/Edge, press F11 for fullscreen, press R to restart.
+   • Windows: Win+Alt+R (Xbox Game Bar) starts/stops recording the window.
+   • OBS Studio: add a "Window Capture" (or "Browser" source pointing at this
+     file at 1920×1080), set Output to MP4, 60 fps, record 50 s.
+   • macOS: Cmd+Shift+5 → Record Selected Portion.
+=====================================================================
+-->
+<style>
+  :root{
+    --bg:#0B1020; --fg:#F4F1EA; --acc:#FFD23F; --myth:#FF5A5F;
+    --dim:rgba(244,241,234,.62);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{width:100%;height:100%;background:#05070f;overflow:hidden}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,"Noto Sans",sans-serif,"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji";
+    color:var(--fg); -webkit-font-smoothing:antialiased;
+  }
+  #stage{
+    position:absolute;left:50%;top:50%;width:1920px;height:1080px;
+    transform-origin:50% 50%;background:var(--bg);overflow:hidden;
+  }
+  #grid{position:absolute;inset:0;
+    background-image:linear-gradient(rgba(255,255,255,.03) 1px,transparent 1px),
+                     linear-gradient(90deg,rgba(255,255,255,.03) 1px,transparent 1px);
+    background-size:80px 80px;}
+  #bg{position:absolute;inset:0;width:1920px;height:1080px}
+  #vig{position:absolute;inset:0;background:radial-gradient(ellipse at 50% 45%,transparent 45%,rgba(3,5,12,.7) 100%)}
+
+  .el{position:absolute;opacity:0;visibility:hidden;will-change:transform,opacity}
+  .cx{left:0;width:100%;text-align:center}
+
+  #title{top:60px;font-size:120px;font-weight:900;letter-spacing:-3px}
+  #meme{left:360px;top:290px;width:1200px;height:520px}
+  #meme svg{width:100%;height:100%;overflow:visible}
+  .mAxis{stroke:rgba(244,241,234,.45);stroke-width:3}
+  .mTxt{fill:var(--fg);font-size:30px;font-weight:700}
+  .mAx{fill:var(--dim);font-size:24px;font-weight:600}
+  #memePath,#memeGhost{fill:none;stroke-width:8;stroke-linecap:round}
+  #memePath{stroke:var(--acc)}
+  #memeGhost{stroke:var(--myth)}
+
+  #stamp{left:50%;top:560px;font-size:190px;font-weight:900;letter-spacing:14px;
+    color:var(--myth);border:12px solid var(--myth);border-radius:18px;padding:0 50px 0 64px;
+    background:rgba(11,16,32,.35);line-height:1.15}
+
+  .big{font-size:72px;font-weight:850;letter-spacing:-1px}
+  .mid{font-size:48px;font-weight:600;color:var(--dim)}
+  .m{color:var(--myth)}
+  .y{color:var(--acc)}
+
+  .hdr{top:78px;font-size:62px;font-weight:850;letter-spacing:-1px}
+  .tag{top:92px;font-size:44px;font-weight:800;color:var(--acc)}
+
+  .cap{bottom:110px;left:160px;width:1600px;text-align:center;font-size:50px;font-weight:750;line-height:1.18}
+  .sub{bottom:52px;left:160px;width:1600px;text-align:center;font-size:36px;font-weight:600;color:rgba(244,241,234,.8)}
+  .cite{font-size:28px;color:var(--dim);font-weight:500}
+
+  #icons{position:absolute;top:168px;left:0;width:100%;display:flex;justify-content:center;gap:36px}
+  .icon{opacity:0;visibility:hidden;display:inline-flex;align-items:center;gap:14px;
+    font-size:36px;font-weight:700;padding:10px 28px;border-radius:40px;
+    border:2px solid rgba(244,241,234,.25);background:rgba(244,241,234,.05)}
+
+  #chartWrap{left:410px;top:250px;width:1100px;height:600px;overflow:hidden}
+  #chart{width:1100px;height:600px;display:block;will-change:transform}
+  .axis{stroke:rgba(244,241,234,.65);stroke-width:3;stroke-linecap:round}
+  .avg{stroke:rgba(244,241,234,.22);stroke-width:2;stroke-dasharray:6 9}
+  .lbl{fill:rgba(244,241,234,.72);font-size:24px;font-weight:600}
+  .lblS{fill:rgba(244,241,234,.45);font-size:20px;font-weight:600}
+  .lineA{fill:none;stroke:var(--acc);stroke-width:7;stroke-linecap:round;stroke-linejoin:round}
+  .lineS{fill:none;stroke:var(--fg);stroke-width:6;stroke-dasharray:20 14;stroke-linecap:round;stroke-linejoin:round}
+  .mkA{fill:var(--acc)}
+  .mkS{fill:var(--bg);stroke:var(--fg);stroke-width:4}
+  .ann{font-size:26px;font-weight:750}
+
+  #wait{left:50%;top:50%;font-size:150px;font-weight:900;color:var(--acc);letter-spacing:-3px;white-space:nowrap}
+
+  #chips{position:absolute;top:80px;left:0;width:100%;display:flex;justify-content:center;gap:40px;align-items:flex-start}
+  .chip{opacity:0;visibility:hidden;padding:16px 34px;border-radius:44px;border:3px solid var(--acc);
+    font-size:38px;font-weight:800;background:rgba(255,210,63,.08);text-align:center;line-height:1.2}
+  .chip small{display:block;font-size:23px;font-weight:600;color:var(--dim);margin-top:4px}
+
+  .endA{font-size:76px;font-weight:850;letter-spacing:-1.5px}
+  #end1{top:360px} #end2{top:470px;color:var(--acc)}
+  #end3{top:640px;font-size:36px;font-weight:600;color:var(--dim)}
+
+  #replay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    opacity:0;pointer-events:none;transition:opacity .6s ease-in-out}
+  #replay.show{opacity:1;pointer-events:auto}
+  #replay button{font:inherit;font-size:42px;font-weight:800;color:var(--bg);background:var(--acc);
+    border:none;border-radius:60px;padding:22px 58px;cursor:pointer;box-shadow:0 10px 40px rgba(255,210,63,.25)}
+  #replay button:focus-visible{outline:4px solid var(--fg);outline-offset:6px}
+
+  #pbar{position:absolute;left:0;bottom:0;width:100%;height:8px;background:rgba(244,241,234,.08)}
+  #bar{height:100%;width:0;background:var(--acc)}
+  #time{position:absolute;right:28px;bottom:18px;font-size:22px;color:rgba(244,241,234,.4);font-variant-numeric:tabular-nums}
+</style>
+</head>
+<body>
+<div id="stage">
+  <div id="grid"></div>
+  <canvas id="bg" width="1920" height="1080"></canvas>
+  <div id="vig"></div>
+
+  <!-- SCENE 1–2: HOOK + MYTH -->
+  <div id="title" class="el cx">🧠 Dunning-Kruger</div>
+  <div id="meme" class="el">
+    <svg viewBox="0 0 1200 520">
+      <g id="memeAxes">
+        <line class="mAxis" x1="60" y1="480" x2="1160" y2="480"/>
+        <line class="mAxis" x1="60" y1="480" x2="60" y2="20"/>
+        <text class="mAx" x="610" y="516" text-anchor="middle">Experience →</text>
+        <text class="mAx" x="34" y="250" text-anchor="middle" transform="rotate(-90 34 250)">Confidence</text>
+      </g>
+      <path id="memeGhost" d="M70,470 C150,460 190,70 240,70 C300,70 350,420 480,420 C710,420 910,215 1150,165"/>
+      <path id="memePath"  d="M70,470 C150,460 190,70 240,70 C300,70 350,420 480,420 C710,420 910,215 1150,165"/>
+      <text id="mlab1" class="mTxt" x="240" y="46" text-anchor="middle">Mount Stupid</text>
+      <text id="mlab2" class="mTxt" x="480" y="462" text-anchor="middle">Valley of Despair</text>
+      <text id="mlab3" class="mTxt" text-anchor="middle"><tspan x="1060" y="280">Slope of</tspan><tspan x="1060" y="316">Enlightenment</tspan></text>
+    </svg>
+  </div>
+  <div id="stamp" class="el">MYTH</div>
+  <div id="myth1" class="el cx big" style="top:420px">This curve is <span class="m">not</span> in the 1999 study.</div>
+  <div id="myth2" class="el cx mid" style="top:530px">It's an internet meme that spread years later.</div>
+
+  <!-- SCENE 3–6 headers -->
+  <div id="hdr3" class="el cx hdr">1999 · Cornell · Kruger &amp; Dunning</div>
+  <div id="icons">
+    <div id="ic1" class="icon">🧩 Logic</div>
+    <div id="ic2" class="icon">✍️ Grammar</div>
+    <div id="ic3" class="icon">😂 Humor</div>
+  </div>
+  <div id="hdr4" class="el cx tag">The forgotten half</div>
+  <div id="hdr6" class="el cx tag">What survives</div>
+
+  <!-- SHARED CHART (scenes 3–6) -->
+  <div id="chartWrap" class="el">
+    <svg id="chart" viewBox="0 0 1100 600">
+      <defs>
+        <clipPath id="clipA"><rect id="clipAr" x="0" y="0" width="0" height="600"/></clipPath>
+        <clipPath id="clipS"><rect id="clipSr" x="0" y="0" width="0" height="600"/></clipPath>
+        <marker id="arC" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="4" markerHeight="4" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#FF5A5F"/></marker>
+        <marker id="arW" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="4" markerHeight="4" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#F4F1EA"/></marker>
+      </defs>
+      <g id="axes">
+        <line class="avg" x1="120" y1="280" x2="1050" y2="280"/>
+        <text class="lblS" x="1050" y="300" text-anchor="end">average</text>
+        <line id="axX" class="axis" x1="120" y1="520" x2="1050" y2="520"/>
+        <line id="axY" class="axis" x1="120" y1="520" x2="120" y2="30"/>
+        <text class="lbl" x="104" y="528" text-anchor="end">0</text>
+        <text class="lbl" x="104" y="288" text-anchor="end">50</text>
+        <text class="lbl" x="104" y="48"  text-anchor="end">100</text>
+        <text class="lbl" x="235" y="556" text-anchor="middle">Bottom 25%</text>
+        <text class="lbl" x="465" y="556" text-anchor="middle">2nd</text>
+        <text class="lbl" x="695" y="556" text-anchor="middle">3rd</text>
+        <text class="lbl" x="925" y="556" text-anchor="middle">Top 25%</text>
+        <text class="lblS" x="585" y="592" text-anchor="middle">Actual skill quartile</text>
+        <text class="lblS" x="40" y="280" text-anchor="middle" transform="rotate(-90 40 280)">Percentile</text>
+      </g>
+      <g id="dots"></g>
+      <polygon id="gapArea" fill="rgba(244,241,234,0.08)"/>
+      <g id="lines">
+        <g clip-path="url(#clipA)"><path id="lineA" class="lineA"/><g id="mA"></g></g>
+        <g clip-path="url(#clipS)"><path id="lineS" class="lineS"/><g id="mS"></g></g>
+      </g>
+      <g id="legend">
+        <line x1="760" y1="447" x2="820" y2="447" class="lineA" style="stroke-width:6"/>
+        <text class="lbl" x="836" y="455">Actual score</text>
+        <line x1="760" y1="487" x2="820" y2="487" class="lineS" style="stroke-width:5;stroke-dasharray:12 9"/>
+        <text class="lbl" x="836" y="495">Self-estimate</text>
+      </g>
+      <g id="gapLow">
+        <line id="gapLowLine" x1="262" y1="237" x2="262" y2="448" stroke="#FF5A5F" stroke-width="5" marker-start="url(#arC)" marker-end="url(#arC)"/>
+        <text class="ann" x="285" y="300" fill="#F4F1EA">Guessed ~62nd</text>
+        <text class="ann" x="285" y="336" fill="#FFD23F">Scored ~12th</text>
+      </g>
+      <g id="gapTop">
+        <line x1="955" y1="120" x2="955" y2="152" stroke="#F4F1EA" stroke-width="4" marker-start="url(#arW)" marker-end="url(#arW)"/>
+        <text class="ann" x="780" y="250" fill="#FFD23F">Scored ~86th</text>
+        <text class="ann" x="780" y="285" fill="#F4F1EA">Guessed ~74th</text>
+      </g>
+    </svg>
+  </div>
+
+  <!-- SCENE 5 -->
+  <div id="wait" class="el">But wait…</div>
+  <div id="chips">
+    <div id="chip1" class="chip">Regression to the mean</div>
+    <div id="chip2" class="chip">Better-than-average effect<small>most people rate themselves slightly above average</small></div>
+  </div>
+
+  <!-- CAPTIONS -->
+  <div id="cap1"  class="el cap">You've seen this graph.</div>
+  <div id="cap3a" class="el cap">People took tests, then guessed their own percentile.</div>
+  <div id="cap3b" class="el cap">The least skilled overestimated themselves the most.</div>
+  <div id="cap4a" class="el cap">Top performers underestimated themselves.</div>
+  <div id="cap4b" class="el sub">They assumed the tasks were easy for everyone.</div>
+  <div id="cap5a" class="el cap">Researchers fed random data into the same analysis…</div>
+  <div id="cap5b" class="el cap">…and the same pattern appeared.</div>
+  <div id="cap5c" class="el cap">Much of the famous graph may be a statistical artifact.</div>
+  <div id="cite"  class="el sub cite">Nuhfer et al. 2016–17 · Gignac &amp; Zajenkowski 2020</div>
+  <div id="cap6a" class="el cap">A real but smaller effect remains: more skill → more accurate self-assessment.</div>
+  <div id="cap6b" class="el sub cite">Illustrative chart · the exact size of the effect is still debated</div>
+
+  <!-- SCENE 7 -->
+  <div id="end1" class="el cx endA">Beginners aren't doomed to arrogance.</div>
+  <div id="end2" class="el cx endA">Everyone's self-judgment is noisy.</div>
+  <div id="end3" class="el cx">Dunning-Kruger: real, but smaller than the meme.</div>
+
+  <div id="replay"><button id="replayBtn" type="button">↻ Replay</button></div>
+  <div id="time">0:00 / 0:50</div>
+  <div id="pbar"><div id="bar"></div></div>
+</div>
+
+<script>
+(() => {
+  "use strict";
+  const DUR = 50;
+  const NS = "http://www.w3.org/2000/svg";
+  const E = {};
+  document.querySelectorAll("[id]").forEach(el => E[el.id] = el);
+
+  // ---------- math helpers ----------
+  const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
+  const ease = x => x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;   // ease-in-out cubic
+  const outC = x => 1 - Math.pow(1 - x, 3);
+  const backOut = x => { const c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2); };
+  const p = (t, a, b) => clamp((t - a) / (b - a));
+  const ep = (t, a, b) => ease(p(t, a, b));
+  const lerp = (a, b, k) => a + (b - a) * k;
+  const hash = n => { const x = Math.sin(n * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
+  // visible window [a,b] with fade-in fi and fade-out fo
+  function env(t, a, b, fi = .45, fo = .45) {
+    if (t < a || t > b) return 0;
+    return Math.min(ease(clamp((t - a) / fi)), 1 - ease(clamp((t - (b - fo)) / fo)));
+  }
+  function set(el, o, tr) {
+    el.style.opacity = o;
+    el.style.visibility = o <= .001 ? "hidden" : "visible";
+    if (tr !== undefined) el.style.transform = tr;
+  }
+  function mulberry32(a) {
+    return function () {
+      a |= 0; a = a + 0x6D2B79F5 | 0;
+      let t = Math.imul(a ^ a >>> 15, 1 | a);
+      t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+      return ((t ^ t >>> 14) >>> 0) / 4294967296;
+    };
+  }
+
+  // ---------- stage scaling ----------
+  function fit() {
+    const s = Math.min(innerWidth / 1920, innerHeight / 1080);
+    E.stage.style.transform = `translate(-50%,-50%) scale(${s})`;
+  }
+  addEventListener("resize", fit); fit();
+
+  // ---------- chart data ----------
+  const QX = [235, 465, 695, 925];
+  const Y = v => 520 - 4.8 * v;                 // percentile -> svg y
+  const ACT   = [12, 35, 60, 86];               // actual score (by construction rises)
+  const SELF0 = [62, 61, 66, 74];               // 1999 self-estimates (approx.)
+  const SELF1 = [40, 50, 63, 80];               // illustrative "what survives"
+  const poly = v => v.map((y, i) => (i ? "L" : "M") + QX[i] + "," + Y(y).toFixed(1)).join(" ");
+  E.lineA.setAttribute("d", poly(ACT));
+
+  function markers(g, vals, cls) {
+    return vals.map((v, i) => {
+      const c = document.createElementNS(NS, "circle");
+      c.setAttribute("cx", QX[i]); c.setAttribute("cy", Y(v)); c.setAttribute("r", 10);
+      c.setAttribute("class", cls); g.appendChild(c); return c;
+    });
+  }
+  markers(E.mA, ACT, "mkA");
+  const mkS = markers(E.mS, SELF0, "mkS");
+
+  // dash setup for drawable strokes
+  const memeLen = E.memePath.getTotalLength();
+  [E.memePath, E.memeGhost].forEach(el => el.style.strokeDasharray = memeLen);
+  const axXLen = 930, axYLen = 490, gapLen = 211;
+  E.axX.style.strokeDasharray = axXLen; E.axY.style.strokeDasharray = axYLen;
+  E.gapLowLine.style.strokeDasharray = gapLen;
+
+  // random dots (scene 5): noise that collapses onto the two lines
+  function along(vals, u) {
+    const seg = Math.min(2, Math.floor(u * 3)), lu = u * 3 - seg;
+    return [235 + u * 690, Y(lerp(vals[seg], vals[seg + 1], lu))];
+  }
+  const r2 = mulberry32(42), DOTS = [];
+  for (let i = 0; i < 140; i++) {
+    const g = i % 2, u = r2(), [tx, ty] = along(g ? SELF0 : ACT, u);
+    const el = document.createElementNS(NS, "circle");
+    el.setAttribute("r", g ? 6 : 7);
+    E.dots.appendChild(el);
+    DOTS.push({ el, g, x0: 60 + r2() * 980, y0: 40 + r2() * 480,
+      tx: tx + (r2() - .5) * 16, ty: ty + (r2() - .5) * 24, d: r2() * .8, ph: r2() * 6.28 });
+  }
+
+  // ambient particles
+  const ctx = E.bg.getContext("2d"), r1 = mulberry32(7);
+  const PARTS = Array.from({ length: 90 }, () => ({
+    x: r1() * 1920, y: r1() * 1080, vx: (r1() - .5) * 14, vy: -4 - r1() * 10,
+    r: .8 + r1() * 2.2, a: .08 + r1() * .25, f: .3 + r1() * .8, ph: r1() * 6.28,
+    c: r1() < .12 ? "255,210,63" : "244,241,234" }));
+  function drawBg(rt) {
+    ctx.clearRect(0, 0, 1920, 1080);
+    for (const q of PARTS) {
+      const x = ((q.x + q.vx * rt) % 1920 + 1920) % 1920;
+      const y = ((q.y + q.vy * rt) % 1080 + 1080) % 1080;
+      ctx.fillStyle = `rgba(${q.c},${q.a * (.6 + .4 * Math.sin(rt * q.f + q.ph))})`;
+      ctx.beginPath(); ctx.arc(x, y, q.r, 0, 6.2832); ctx.fill();
+    }
+  }
+
+  // caption windows: [id, start, end]
+  const CAPS = [
+    ["cap1", 1.4, 5.2],
+    ["myth1", 6.9, 9.85], ["myth2", 7.4, 9.85],
+    ["hdr3", 10.2, 20.6], ["cap3a", 12.2, 16.8], ["cap3b", 17.0, 20.3],
+    ["hdr4", 20.6, 25.8], ["cap4a", 21.3, 25.9], ["cap4b", 22.2, 25.9],
+    ["cap5a", 28.6, 33.2], ["cap5b", 33.4, 36.6], ["cap5c", 36.8, 40.1], ["cite", 37.2, 40.1],
+    ["hdr6", 40.3, 46.8], ["cap6a", 41.4, 46.8], ["cap6b", 42.4, 46.8],
+    ["end1", 47.1, 49.95], ["end2", 47.6, 49.95], ["end3", 48.2, 49.95]
+  ].map(([id, a, b]) => [E[id], a, b]);
+
+  // ================= MASTER RENDER: everything is a pure function of t =================
+  function render(t) {
+    // ---------- SCENE 1 (0–5): HOOK ----------
+    const kT = p(t, 0, .55);
+    const shake = (t > .55 && t < .85) ? Math.sin((t - .55) * 80) * (1 - p(t, .55, .85)) * 14 : 0;
+    set(E.title, (t > 0 ? clamp(kT * 2.5) : 0) * (1 - ep(t, 9.3, 9.9)),
+        `translateX(${shake}px) scale(${1 + 1.3 * Math.pow(1 - kT, 3)})`);
+
+    const draw = ep(t, .8, 3.4);
+    E.memePath.style.strokeDashoffset = memeLen * (1 - draw);
+    E.memeGhost.style.strokeDashoffset = memeLen * (1 - draw);
+    [[E.mlab1, 1.6], [E.mlab2, 2.4], [E.mlab3, 3.2]].forEach(([el, s]) => {
+      const o = ep(t, s, s + .45); el.style.opacity = o; el.style.transform = `translateY(${(1 - o) * 18}px)`;
+    });
+
+    // ---------- SCENE 2 (5–10): MYTH BUSTED ----------
+    let memeOp = clamp(p(t, .5, .9)) * (1 - ep(t, 6.6, 7.4));
+    let gx = 0, gy = 0, ghostOp = 0, coral = false, skew = 0;
+    if (t > 5.55 && t < 5.9) gx = Math.sin((t - 5.55) * 90) * 12 * (1 - p(t, 5.55, 5.9));   // stamp impact
+    if (t > 5.95 && t < 7.4) {                                                             // glitch
+      const f = Math.floor(t * 24), r = hash(f);
+      gx = (r - .5) * 50; gy = (hash(f + 3) - .5) * 14; skew = (hash(f + 5) - .5) * 10;
+      ghostOp = .8; coral = r > .35;
+      if (hash(f + 7) > .78) memeOp *= .35;
+    }
+    set(E.meme, memeOp, `translate(${gx}px,${gy}px) skewX(${skew}deg)`);
+    E.meme.style.filter = t > 6.6 ? `blur(${ep(t, 6.6, 7.4) * 14}px)` : "none";
+    E.memeGhost.style.opacity = ghostOp;
+    E.memeGhost.style.transform = `translate(${-gx * 1.3}px,${-gy * 2}px)`;
+    E.memePath.style.stroke = coral ? "#FF5A5F" : "#FFD23F";
+
+    const ks = p(t, 5.25, 5.55);
+    set(E.stamp, (t >= 5.25 ? clamp(ks * 3) : 0) * (1 - ep(t, 6.8, 7.3)),
+        `translate(-50%,-50%) rotate(-12deg) scale(${1 + 2 * Math.pow(1 - ks, 3)})`);
+
+    // ---------- captions (all scenes) ----------
+    for (const [el, a, b] of CAPS) {
+      set(el, env(t, a, b), `translateY(${(1 - ep(t, a, a + .6)) * 28}px)`);
+    }
+
+    // ---------- SCENE 3 (10–20): THE REAL STUDY ----------
+    [E.ic1, E.ic2, E.ic3].forEach((el, i) => {
+      const a = 11 + i * .3, k = p(t, a, a + .5);
+      set(el, env(t, a, 20.6, .15, .5), `scale(${k > 0 ? backOut(k) : 0})`);
+    });
+
+    const chartOn = t < 29 ? env(t, 12, 26.5, .6, .6) : env(t, 28.4, 46.9, .5, .6);
+    const zk = ep(t, 20.3, 21.8) * (1 - ep(t, 25.2, 26.2));        // SCENE 4 zoom
+    const sk = ep(t, 40, 41.5);                                     // SCENE 6 shrink
+    E.chart.style.transformOrigin = "850px 180px";                 // zoom happens inside the clipped frame
+    E.chart.style.transform = `scale(${1 + .6 * zk})`;
+    E.chartWrap.style.transformOrigin = "550px 300px";
+    set(E.chartWrap, chartOn, `scale(${1 - .18 * sk})`);
+
+    E.axes.style.opacity = t < 29 ? 1 : ep(t, 33, 33.6);
+    const ad = t < 26.6 ? 1 - ep(t, 12, 12.9) : 0;
+    E.axX.style.strokeDashoffset = axXLen * ad;
+    E.axY.style.strokeDashoffset = axYLen * ad;
+    E.legend.style.opacity = (t < 29 ? ep(t, 13.8, 14.4) : ep(t, 34.2, 34.8)) * (1 - zk);
+
+    const kA = t < 26.6 ? ep(t, 13, 14.6) : ep(t, 33.2, 34.4);
+    const kS = t < 26.6 ? ep(t, 14.6, 16.2) : ep(t, 33.6, 34.8);
+    E.clipAr.setAttribute("width", lerp(215, 960, kA));
+    E.clipSr.setAttribute("width", lerp(215, 960, kS));
+
+    // self-estimate line (morphs in SCENE 6)
+    const mk = ep(t, 40.8, 42.8);
+    const S = SELF0.map((v, i) => lerp(v, SELF1[i], mk));
+    E.lineS.setAttribute("d", poly(S));
+    mkS.forEach((c, i) => c.setAttribute("cy", Y(S[i]).toFixed(1)));
+    const pts = ACT.map((v, i) => QX[i] + "," + Y(v).toFixed(1))
+      .concat(S.map((v, i) => QX[i] + "," + Y(v).toFixed(1)).reverse());
+    E.gapArea.setAttribute("points", pts.join(" "));
+    E.gapArea.style.opacity = t < 26.6 ? ep(t, 16.4, 17.2) : ep(t, 34.6, 35.4);
+
+    E.gapLow.style.opacity = env(t, 16.6, 20.4);
+    E.gapLowLine.style.strokeDashoffset = gapLen * (1 - ep(t, 16.6, 17.3));
+
+    // ---------- SCENE 4 (20–26): FORGOTTEN HALF ----------
+    E.gapTop.style.opacity = env(t, 21.4, 25.5);
+
+    // ---------- SCENE 5 (26–40): THE TWIST ----------
+    const kw = p(t, 26.3, 26.7);
+    set(E.wait, env(t, 26.3, 28.6, .2, .4), `translate(-50%,-50%) scale(${1 + .8 * Math.pow(1 - kw, 3)})`);
+
+    const dOp = env(t, 28.4, 41, .5, .8);
+    E.dots.style.opacity = dOp;
+    if (dOp > 0) {
+      const fadeBack = .85 - .45 * ep(t, 33.2, 34.4);
+      for (const d of DOTS) {
+        const k = ep(t, 30.5 + d.d, 32.2 + d.d), w = 1 - k;
+        const x = lerp(d.x0 + Math.sin(t * 1.7 + d.ph) * 12 * w, d.tx, k);
+        const y = lerp(d.y0 + Math.cos(t * 1.3 + d.ph) * 12 * w, d.ty, k);
+        d.el.setAttribute("cx", x.toFixed(1)); d.el.setAttribute("cy", y.toFixed(1));
+        d.el.setAttribute("fill", (d.g === 0 && k > .5) ? "#FFD23F" : "#F4F1EA");
+        d.el.setAttribute("opacity", fadeBack);
+      }
+    }
+
+    const c1 = p(t, 35.5, 36.1), c2 = p(t, 36.2, 36.8);
+    set(E.chip1, env(t, 35.5, 40.2, .25, .5), `translateX(${-520 * (1 - backOut(c1))}px)`);
+    set(E.chip2, env(t, 36.2, 40.2, .25, .5), `translateX(${520 * (1 - backOut(c2))}px)`);
+
+    // ---------- SCENE 6 (40–47) handled above (shrink + morph) ----------
+    // ---------- SCENE 7 (47–50) handled by CAPS (end1–end3) ----------
+
+    // ---------- UI ----------
+    E.bar.style.width = (t / DUR * 100) + "%";
+    const s = Math.floor(t);
+    E.time.textContent = `0:${String(s).padStart(2, "0")} / 0:50`;
+    E.replay.classList.toggle("show", t >= DUR);
+  }
+
+  // ================= MASTER TIMELINE =================
+  const q = parseFloat(new URLSearchParams(location.search).get("t"));
+  let start = performance.now() - (isFinite(q) ? clamp(q, 0, DUR) * 1000 : 0);
+  let paused = false, pauseT = 0;
+  const now = () => paused ? pauseT : (performance.now() - start) / 1000;
+  function seek(d) {
+    const c = clamp(now() + d, 0, DUR);
+    if (paused) pauseT = c; else start = performance.now() - c * 1000;
+  }
+  function replay() { start = performance.now(); paused = false; }
+  function toggle() {
+    if (paused) { start = performance.now() - pauseT * 1000; paused = false; }
+    else { pauseT = Math.min(now(), DUR); paused = true; }
+  }
+  E.replayBtn.addEventListener("click", replay);
+  addEventListener("keydown", e => {
+    if (e.code === "Space") { e.preventDefault(); toggle(); }
+    else if (e.code === "ArrowRight") seek(2);
+    else if (e.code === "ArrowLeft") seek(-2);
+    else if (e.key === "r" || e.key === "R") replay();
+  });
+
+  function frame(ms) {
+    render(Math.min(now(), DUR));
+    drawBg(ms / 1000);
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
