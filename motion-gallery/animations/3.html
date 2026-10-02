@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tide</title>
+<style>
+  html,body{margin:0;height:100%;background:#0B2A33;overflow:hidden}
+  canvas{display:block;width:100%;height:100%}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+  const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+  let W = 0, H = 0;
+  const layers = [
+    { color: '#145C6B', amp: .06, len: 1.3, speed: .25, y: .52 },
+    { color: '#1B8A94', amp: .07, len: 1.0, speed: .35, y: .60 },
+    { color: '#3FB8A8', amp: .08, len: .8,  speed: .45, y: .68 },
+    { color: '#9FE3C8', amp: .06, len: .6,  speed: .60, y: .78 },
+    { color: '#F4FFF0', amp: .04, len: .45, speed: .80, y: .88 }
+  ];
+  function size(){
+    const d = Math.min(2, devicePixelRatio || 1);
+    W = cv.clientWidth; H = cv.clientHeight;
+    cv.width = W * d; cv.height = H * d; ctx.setTransform(d, 0, 0, d, 0, 0);
+  }
+  addEventListener('resize', size); size();
+
+  function frame(ms){
+    const t = ms / 1000;
+    ctx.clearRect(0, 0, W, H);
+    layers.forEach((L, i) => {
+      ctx.beginPath(); ctx.moveTo(0, H);
+      for (let x = 0; x <= W; x += 6){
+        const k = x / W * Math.PI * 2 / L.len;
+        const y = H * L.y + Math.sin(k + t * L.speed * 2 + i) * H * L.amp + Math.sin(k * 2.3 - t * L.speed) * H * L.amp * .35;
+        ctx.lineTo(x, y);
+      }
+      ctx.lineTo(W, H); ctx.closePath();
+      ctx.fillStyle = L.color; ctx.fill();
+    });
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+</script>
+</body>
+</html>

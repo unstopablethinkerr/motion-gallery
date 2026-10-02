@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Orbit</title>
+<style>
+  html,body{margin:0;height:100%;background:#14102E;overflow:hidden}
+  #stage{position:absolute;inset:0;display:grid;place-items:center}
+  .core{position:absolute;width:7vmin;height:7vmin;border-radius:50%;background:#fff;animation:breathe 3s ease-in-out infinite}
+  .ring{position:absolute;border-radius:50%;border:2px dashed rgba(255,255,255,.16);animation:spin linear infinite}
+  .ring i{
+    position:absolute;left:50%;top:50%;width:3vmin;height:3vmin;margin:-1.5vmin;border-radius:50%;background:var(--c);
+    transform:rotate(var(--a)) translateY(calc(var(--r) * -1));animation:pulse 2.4s ease-in-out infinite;
+  }
+  @keyframes spin{to{transform:rotate(360deg)}}
+  @keyframes pulse{50%{scale:.35;opacity:.5}}
+  @keyframes breathe{50%{transform:scale(1.35);opacity:.7}}
+</style>
+</head>
+<body>
+<div id="stage"><div class="core"></div></div>
+<script>
+  const rings = [
+    { r: 14, n: 6,  t: 14, c: '#FF4F8B' },
+    { r: 24, n: 10, t: 22, c: '#FFD23F' },
+    { r: 34, n: 14, t: 34, c: '#7DD3FC' }
+  ];
+  const stage = document.getElementById('stage');
+  rings.forEach((o, i) => {
+    const ring = document.createElement('div');
+    ring.className = 'ring';
+    ring.style.cssText = `width:${o.r*2}vmin;height:${o.r*2}vmin;animation-duration:${o.t}s;animation-direction:${i % 2 ? 'reverse' : 'normal'}`;
+    for (let k = 0; k < o.n; k++){
+      const d = document.createElement('i');
+      d.style.cssText = `--a:${k*360/o.n}deg;--c:${o.c};--r:${o.r}vmin;animation-delay:${-k*0.15}s`;
+      ring.appendChild(d);
+    }
+    stage.appendChild(ring);
+  });
+</script>
+</body>
+</html>
