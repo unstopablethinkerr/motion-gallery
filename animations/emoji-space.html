@@ -1,0 +1,1716 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Emoji Motion Lab — Optimized</title>
+
+<style>
+  html, body {
+    margin: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #1D1816;
+  }
+
+  canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    cursor: crosshair;
+  }
+</style>
+</head>
+
+<body>
+<canvas id="c"></canvas>
+
+<script>
+"use strict";
+
+const canvas = document.getElementById("c");
+const ctx = canvas.getContext("2d", {
+  alpha: false,
+  desynchronized: true
+});
+
+const TAU = Math.PI * 2;
+
+// --------------------------------------------------
+// CONFIG
+// --------------------------------------------------
+
+const MAX_DPR = 1.5;
+const SPRITE_COUNT = 42;
+const MAX_SHOCKS = 4;
+const MAX_SPARKS = 180;
+const MAX_SHOOTING = 3;
+
+const THEMES = {
+  dark: {
+    bg1: "#2A201C",
+    bg2: "#14100E",
+    ink: "#F4EFE6",
+    dim: "rgba(244,239,230,0.55)",
+    star: "255,240,225"
+  },
+
+  light: {
+    bg1: "#FBF7F0",
+    bg2: "#EADFCF",
+    ink: "#2B2622",
+    dim: "rgba(43,38,34,0.55)",
+    star: "193,95,60"
+  }
+};
+
+const ACCENT  = "#D97757";
+const ACCENT2 = "#E8A585";
+const AMBER   = "#F2B24C";
+const ROSE    = "#E0708C";
+
+const PALETTE = [
+  ACCENT,
+  ACCENT2,
+  AMBER,
+  ROSE,
+  "#7FB7A4",
+  "#8FA8E8"
+];
+
+const EMOJIS = [
+  "✨","🚀","🪐","🌙","⭐",
+  "🔥","🎨","🧠","💡","🌈",
+  "🦋","🍄","🎧","🛸","🌸",
+  "⚡","🎲","🧩","🔮","🪄"
+];
+
+const EMOJI_FONT =
+  '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
+
+const SCENES = [
+  "Orbit 🪐",
+  "Galaxy 🌌",
+  "Wave 🌊",
+  "Heart 💖",
+  "Infinity ♾️"
+];
+
+const SCENE_TIME = 7;
+
+// --------------------------------------------------
+// UTILS
+// --------------------------------------------------
+
+const clamp = (v, a = 0, b = 1) =>
+  Math.min(Math.max(v, a), b);
+
+const rand = (a, b) =>
+  a + Math.random() * (b - a);
+
+const pick = arr =>
+  arr[(Math.random() * arr.length) | 0];
+
+const easeOutBack = t => {
+  const c1 = 1.70158;
+  const c3 = c1 + 1;
+
+  return 1 +
+    c3 * Math.pow(t - 1, 3) +
+    c1 * Math.pow(t - 1, 2);
+};
+
+const easeInOut = t =>
+  t < 0.5
+    ? 2 * t * t
+    : 1 - Math.pow(-2 * t + 2, 2) / 2;
+
+// --------------------------------------------------
+// STATE
+// --------------------------------------------------
+
+let W = 0;
+let H = 0;
+let dpr = 1;
+
+let theme = "dark";
+
+let sprites = [];
+let stars = [];
+let bubbles = [];
+let shocks = [];
+let sparks = [];
+let shooting = [];
+
+let scene = 0;
+let sceneStart = 0;
+let t = 0;
+
+let last = performance.now();
+
+let nextAutoShock = 2;
+let nextShooting = 3;
+
+const mouse = {
+  x: -9999,
+  y: -9999,
+  active: false
+};
+
+// --------------------------------------------------
+// EMOJI CACHE
+// --------------------------------------------------
+
+const emojiCache = new Map();
+
+function getEmojiCanvas(emoji, size) {
+  const key = emoji + "_" + size;
+
+  if (emojiCache.has(key)) {
+    return emojiCache.get(key);
+  }
+
+  const pad = 8;
+  const c = document.createElement("canvas");
+
+  c.width = size + pad * 2;
+  c.height = size + pad * 2;
+
+  const cctx = c.getContext("2d");
+
+  cctx.font = `${size}px ${EMOJI_FONT}`;
+  cctx.textAlign = "center";
+  cctx.textBaseline = "middle";
+
+  cctx.fillText(
+    emoji,
+    c.width / 2,
+    c.height / 2
+  );
+
+  emojiCache.set(key, c);
+
+  return c;
+}
+
+// --------------------------------------------------
+// RESIZE
+// --------------------------------------------------
+
+function resize() {
+  dpr = Math.min(window.devicePixelRatio || 1, MAX_DPR);
+
+  W = window.innerWidth;
+  H = window.innerHeight;
+
+  canvas.width = Math.floor(W * dpr);
+  canvas.height = Math.floor(H * dpr);
+
+  canvas.style.width = W + "px";
+  canvas.style.height = H + "px";
+
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  // Avoid keeping enormous cached emoji canvases after resize.
+  emojiCache.clear();
+}
+
+window.addEventListener("resize", resize);
+resize();
+
+// --------------------------------------------------
+// INITIALIZATION
+// --------------------------------------------------
+
+function init() {
+  sprites = [];
+
+  for (let i = 0; i < SPRITE_COUNT; i++) {
+    sprites.push({
+      e: EMOJIS[i % EMOJIS.length],
+
+      x: W / 2,
+      y: H / 2,
+
+      vx: rand(-100, 100),
+      vy: rand(-100, 100),
+
+      size: rand(26, 38),
+
+      z: 1,
+
+      wob: rand(0, TAU),
+
+      // Only keep a tiny trail.
+      trail: []
+    });
+  }
+
+  stars = [];
+
+  for (let i = 0; i < 90; i++) {
+    stars.push({
+      x: Math.random(),
+      y: Math.random(),
+      r: rand(0.5, 1.8),
+      depth: rand(0.2, 1),
+      tw: rand(0, TAU)
+    });
+  }
+
+  bubbles = [];
+
+  for (let i = 0; i < 10; i++) {
+    bubbles.push(newBubble(true));
+  }
+}
+
+function newBubble(anywhere) {
+  return {
+    e: pick(EMOJIS),
+    x: Math.random(),
+    y: anywhere ? Math.random() : 1.1,
+
+    speed: rand(0.02, 0.06),
+
+    size: rand(40, 80),
+
+    wob: rand(0, TAU),
+    wobSpeed: rand(0.5, 1.5)
+  };
+}
+
+// --------------------------------------------------
+// FORMATIONS
+// --------------------------------------------------
+
+function formation(k, i, n, time) {
+  const u = Math.min(W, H);
+  const cx = W / 2;
+  const cy = H / 2 - 20;
+
+  // ORBIT
+  if (k === 0) {
+    const ring = i % 3;
+    const idx = Math.floor(i / 3);
+    const per = Math.ceil(n / 3);
+
+    const dir = ring % 2 ? -1 : 1;
+
+    const a =
+      (idx / per) * TAU +
+      time * (0.55 - ring * 0.12) * dir +
+      ring;
+
+    const r = u * (0.22 + ring * 0.09);
+
+    return [
+      cx + Math.cos(a) * r * 1.5,
+      cy + Math.sin(a) * r * 0.55,
+      1 + 0.4 * Math.sin(a)
+    ];
+  }
+
+  // GALAXY
+  if (k === 1) {
+    const a = i * 2.39996 + time * 0.25;
+
+    const r =
+      u * 0.055 *
+      Math.sqrt(i + 1) *
+      1.35;
+
+    return [
+      cx + Math.cos(a) * r,
+      cy + Math.sin(a) * r,
+      0.8 + (i / n) * 0.5
+    ];
+  }
+
+  // WAVE
+  if (k === 2) {
+    const cols = 7;
+
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+
+    const gap =
+      Math.min(W / (cols + 1), u * 0.16);
+
+    const wave =
+      Math.sin(
+        time * 2.2 +
+        col * 0.6 +
+        row * 0.6
+      );
+
+    return [
+      cx +
+        (col - (cols - 1) / 2) *
+        gap,
+
+      cy +
+        (row - 2.5) *
+        gap +
+        wave * gap * 0.25,
+
+      1 + wave * 0.25
+    ];
+  }
+
+  // HEART
+  if (k === 3) {
+    const a = (i / n) * TAU;
+
+    const hx =
+      16 * Math.pow(Math.sin(a), 3);
+
+    const hy =
+      13 * Math.cos(a) -
+      5 * Math.cos(2 * a) -
+      2 * Math.cos(3 * a) -
+      Math.cos(4 * a);
+
+    const s =
+      u *
+      0.023 *
+      (1 + 0.07 * Math.sin(time * 5));
+
+    return [
+      cx + hx * s,
+      cy - hy * s,
+      1 + 0.15 * Math.sin(time * 5)
+    ];
+  }
+
+  // INFINITY
+  const p =
+    (i / n) * TAU +
+    time * 0.45;
+
+  const d =
+    1 + Math.sin(p) ** 2;
+
+  const R =
+    Math.min(W * 0.4, u * 0.75);
+
+  return [
+    cx + (R * Math.cos(p)) / d,
+
+    cy +
+      (R * Math.sin(p) * Math.cos(p)) /
+      d *
+      1.3,
+
+    1 + 0.35 * Math.sin(p * 2)
+  ];
+}
+
+// --------------------------------------------------
+// EFFECTS
+// --------------------------------------------------
+
+function addShock(x, y, maxR = Math.max(W, H) * 0.6) {
+  if (shocks.length >= MAX_SHOCKS) {
+    shocks.shift();
+  }
+
+  shocks.push({
+    x,
+    y,
+    r: 0,
+    max: maxR,
+    speed: 520
+  });
+}
+
+function burst(x, y) {
+  // Don't create 40 particles every click.
+  const count = 24;
+
+  for (let i = 0; i < count; i++) {
+    if (sparks.length >= MAX_SPARKS) {
+      sparks.shift();
+    }
+
+    const a = rand(0, TAU);
+    const sp = rand(120, 420);
+
+    sparks.push({
+      x,
+      y,
+
+      vx: Math.cos(a) * sp,
+      vy: Math.sin(a) * sp,
+
+      life: rand(0.7, 1.4),
+      age: 0,
+
+      color: pick(PALETTE),
+      size: rand(2, 4),
+
+      emoji:
+        Math.random() < 0.15
+          ? pick(EMOJIS)
+          : null,
+
+      rot: rand(0, TAU),
+      spin: rand(-5, 5)
+    });
+  }
+
+  addShock(x, y, 320);
+}
+
+function spawnShooting() {
+  if (shooting.length >= MAX_SHOOTING) {
+    return;
+  }
+
+  const fromLeft =
+    Math.random() < 0.5;
+
+  shooting.push({
+    x: fromLeft
+      ? rand(-50, W * 0.4)
+      : rand(W * 0.6, W + 50),
+
+    y: rand(-20, H * 0.35),
+
+    vx:
+      (fromLeft ? 1 : -1) *
+      rand(500, 800),
+
+    vy: rand(200, 380),
+
+    life: 0,
+    max: rand(0.8, 1.3)
+  });
+}
+
+function nextScene(to) {
+  scene =
+    to !== undefined
+      ? to
+      : (scene + 1) % SCENES.length;
+
+  sceneStart = t;
+
+  addShock(
+    W / 2,
+    H / 2 - 20
+  );
+
+  for (let i = 0; i < 12; i++) {
+    if (sparks.length >= MAX_SPARKS) {
+      sparks.shift();
+    }
+
+    const a = rand(0, TAU);
+    const sp = rand(100, 300);
+
+    sparks.push({
+      x: W / 2,
+      y: H / 2 - 20,
+
+      vx: Math.cos(a) * sp,
+      vy: Math.sin(a) * sp,
+
+      life: rand(0.6, 1.1),
+      age: 0,
+
+      color: pick(PALETTE),
+      size: rand(2, 4),
+
+      emoji: null,
+      rot: 0,
+      spin: 0
+    });
+  }
+}
+
+// --------------------------------------------------
+// DRAW HELPERS
+// --------------------------------------------------
+
+function drawEmoji(
+  e,
+  x,
+  y,
+  size,
+  rot = 0,
+  alpha = 1
+) {
+  const canvasSize =
+    Math.round(clamp(size, 12, 64));
+
+  const image =
+    getEmojiCanvas(e, canvasSize);
+
+  ctx.globalAlpha = alpha;
+
+  if (rot !== 0) {
+    ctx.save();
+
+    ctx.translate(x, y);
+    ctx.rotate(rot);
+
+    ctx.drawImage(
+      image,
+      -image.width / 2,
+      -image.height / 2
+    );
+
+    ctx.restore();
+  } else {
+    ctx.drawImage(
+      image,
+      x - image.width / 2,
+      y - image.height / 2
+    );
+  }
+}
+
+// --------------------------------------------------
+// BACKGROUND
+// --------------------------------------------------
+
+function drawBackground(time) {
+  const th = THEMES[theme];
+
+  const g =
+    ctx.createRadialGradient(
+      W / 2,
+      H / 2,
+      0,
+      W / 2,
+      H / 2,
+      Math.max(W, H) * 0.75
+    );
+
+  g.addColorStop(0, th.bg1);
+  g.addColorStop(1, th.bg2);
+
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+
+  // Only 3 cheap translucent blobs.
+  const blobs = [
+    [ACCENT, 0],
+    [AMBER, 2.1],
+    [ROSE, 4.2]
+  ];
+
+  blobs.forEach(([col, ph], i) => {
+    const x =
+      W *
+      (0.5 +
+        0.35 *
+        Math.sin(time * 0.17 + ph));
+
+    const y =
+      H *
+      (0.5 +
+        0.3 *
+        Math.cos(time * 0.13 + ph * 1.3));
+
+    const r =
+      Math.max(W, H) *
+      (0.35 +
+        0.05 *
+        Math.sin(time * 0.4 + i));
+
+    const bg =
+      ctx.createRadialGradient(
+        x,
+        y,
+        0,
+        x,
+        y,
+        r
+      );
+
+    bg.addColorStop(
+      0,
+      col +
+        (theme === "dark"
+          ? "25"
+          : "18")
+    );
+
+    bg.addColorStop(
+      1,
+      col + "00"
+    );
+
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, W, H);
+  });
+}
+
+function drawStars(time) {
+  const th = THEMES[theme];
+
+  const px =
+    mouse.active
+      ? mouse.x - W / 2
+      : 0;
+
+  const py =
+    mouse.active
+      ? mouse.y - H / 2
+      : 0;
+
+  ctx.fillStyle = "#fff";
+
+  for (const s of stars) {
+    const x =
+      ((s.x * W -
+        px * 0.03 * s.depth) %
+        W +
+        W) %
+      W;
+
+    const y =
+      ((s.y * H -
+        py * 0.03 * s.depth) %
+        H +
+        H) %
+      H;
+
+    const a =
+      0.25 +
+      0.5 *
+        (0.5 +
+          0.5 *
+            Math.sin(
+              time * 1.5 + s.tw
+            ));
+
+    ctx.globalAlpha =
+      a * s.depth;
+
+    ctx.beginPath();
+
+    ctx.arc(
+      x,
+      y,
+      s.r * s.depth,
+      0,
+      TAU
+    );
+
+    ctx.fill();
+  }
+
+  ctx.globalAlpha = 1;
+}
+
+function drawBubbles(dt, time) {
+  for (let i = 0; i < bubbles.length; i++) {
+    const b = bubbles[i];
+
+    b.y -= b.speed * dt;
+
+    if (b.y < -0.15) {
+      bubbles[i] = newBubble(false);
+      continue;
+    }
+
+    const x =
+      b.x * W +
+      Math.sin(
+        time * b.wobSpeed + b.wob
+      ) *
+      30;
+
+    drawEmoji(
+      b.e,
+      x,
+      b.y * H,
+      b.size,
+      Math.sin(time + b.wob) * 0.2,
+      0.07
+    );
+  }
+}
+
+// --------------------------------------------------
+// SHOOTING STARS
+// --------------------------------------------------
+
+function drawShooting(dt) {
+  ctx.lineCap = "round";
+  ctx.lineWidth = 2;
+
+  for (
+    let i = shooting.length - 1;
+    i >= 0;
+    i--
+  ) {
+    const s = shooting[i];
+
+    s.life += dt;
+    s.x += s.vx * dt;
+    s.y += s.vy * dt;
+
+    if (s.life > s.max) {
+      shooting.splice(i, 1);
+      continue;
+    }
+
+    const a =
+      Math.sin(
+        (s.life / s.max) * Math.PI
+      );
+
+    const len = 90;
+
+    const m =
+      Math.hypot(
+        s.vx,
+        s.vy
+      );
+
+    const tx =
+      s.x -
+      (s.vx / m) * len;
+
+    const ty =
+      s.y -
+      (s.vy / m) * len;
+
+    ctx.strokeStyle =
+      `rgba(255,230,200,${a})`;
+
+    ctx.beginPath();
+    ctx.moveTo(s.x, s.y);
+    ctx.lineTo(tx, ty);
+    ctx.stroke();
+  }
+}
+
+// --------------------------------------------------
+// LOGO
+// --------------------------------------------------
+
+function drawLogo(cx, cy, time, intro) {
+  const pulse =
+    1 +
+    0.08 *
+      Math.sin(time * 2.4);
+
+  const gr =
+    120 *
+    pulse *
+    intro;
+
+  // One glow instead of many sprite glows.
+  if (gr > 1) {
+    const glow =
+      ctx.createRadialGradient(
+        cx,
+        cy,
+        0,
+        cx,
+        cy,
+        gr
+      );
+
+    glow.addColorStop(
+      0,
+      "rgba(217,119,87,0.45)"
+    );
+
+    glow.addColorStop(
+      1,
+      "rgba(217,119,87,0)"
+    );
+
+    ctx.fillStyle = glow;
+
+    ctx.beginPath();
+    ctx.arc(
+      cx,
+      cy,
+      gr,
+      0,
+      TAU
+    );
+    ctx.fill();
+  }
+
+  ctx.lineCap = "round";
+
+  // Outer rays.
+  const rays = 16;
+
+  for (let i = 0; i < rays; i++) {
+    const a =
+      (i / rays) * TAU +
+      time * 0.3;
+
+    const len =
+      (46 +
+        24 *
+          Math.sin(
+            time * 2.2 +
+            i * 1.3
+          )) *
+      intro;
+
+    const inner =
+      22 *
+      intro *
+      pulse;
+
+    ctx.strokeStyle =
+      i % 2
+        ? ACCENT2
+        : ACCENT;
+
+    ctx.lineWidth =
+      i % 2
+        ? 3
+        : 4;
+
+    ctx.beginPath();
+
+    ctx.moveTo(
+      cx +
+        Math.cos(a) *
+        inner,
+
+      cy +
+        Math.sin(a) *
+        inner
+    );
+
+    ctx.lineTo(
+      cx +
+        Math.cos(a) *
+        (inner + len),
+
+      cy +
+        Math.sin(a) *
+        (inner + len)
+    );
+
+    ctx.stroke();
+  }
+
+  // Core.
+  const cr =
+    Math.max(
+      16 *
+        pulse *
+        intro,
+      0.1
+    );
+
+  ctx.fillStyle = ACCENT;
+
+  ctx.beginPath();
+
+  ctx.arc(
+    cx,
+    cy,
+    cr,
+    0,
+    TAU
+  );
+
+  ctx.fill();
+}
+
+// --------------------------------------------------
+// TITLE
+// --------------------------------------------------
+
+function drawTitle(time) {
+  const th = THEMES[theme];
+
+  const text =
+    "MOTION GRAPHICS";
+
+  const size =
+    clamp(
+      W / 16,
+      26,
+      64
+    );
+
+  ctx.font =
+    `700 ${size}px Georgia, serif`;
+
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+
+  const chars = [...text];
+
+  const widths =
+    chars.map(
+      ch =>
+        ctx.measureText(ch).width +
+        size * 0.04
+    );
+
+  const total =
+    widths.reduce(
+      (a, b) => a + b,
+      0
+    );
+
+  const y =
+    clamp(
+      H * 0.11,
+      40,
+      100
+    );
+
+  let x =
+    W / 2 -
+    total / 2;
+
+  for (
+    let i = 0;
+    i < chars.length;
+    i++
+  ) {
+    const ch = chars[i];
+
+    const p =
+      clamp(
+        (time -
+          0.6 -
+          i * 0.05) /
+          0.7
+      );
+
+    const e =
+      easeOutBack(p);
+
+    const bob =
+      Math.sin(
+        time * 2 +
+        i * 0.5
+      ) *
+      4 *
+      p;
+
+    ctx.save();
+
+    ctx.globalAlpha = p;
+
+    ctx.translate(
+      x +
+        widths[i] / 2,
+
+      y +
+        (1 - e) * 50 +
+        bob
+    );
+
+    ctx.rotate(
+      (1 - e) * 0.5
+    );
+
+    ctx.fillStyle =
+      i % 5 === 2
+        ? ACCENT
+        : th.ink;
+
+    ctx.fillText(
+      ch,
+      0,
+      0
+    );
+
+    ctx.restore();
+
+    x += widths[i];
+  }
+
+  // Scene name.
+  const sp =
+    clamp(
+      (time - 2) / 0.8
+    );
+
+  ctx.globalAlpha = sp;
+
+  ctx.font =
+    `500 ${clamp(
+      W / 42,
+      14,
+      24
+    )}px Georgia, serif`;
+
+  ctx.fillStyle = th.dim;
+
+  ctx.fillText(
+    SCENES[scene],
+    W / 2,
+    y + size * 0.85
+  );
+
+  ctx.globalAlpha = 1;
+}
+
+// --------------------------------------------------
+// SHOCKWAVES
+// --------------------------------------------------
+
+function drawShocks(dt) {
+  for (
+    let i = shocks.length - 1;
+    i >= 0;
+    i--
+  ) {
+    const s = shocks[i];
+
+    s.r += s.speed * dt;
+
+    const life =
+      s.r / s.max;
+
+    if (life >= 1) {
+      shocks.splice(i, 1);
+      continue;
+    }
+
+    const alpha =
+      1 - life;
+
+    ctx.strokeStyle =
+      `rgba(217,119,87,${0.45 * alpha})`;
+
+    ctx.lineWidth =
+      2 * alpha + 1;
+
+    ctx.beginPath();
+
+    ctx.arc(
+      s.x,
+      s.y,
+      s.r,
+      0,
+      TAU
+    );
+
+    ctx.stroke();
+  }
+}
+
+// --------------------------------------------------
+// SPARKS
+// --------------------------------------------------
+
+function drawSparks(dt) {
+  for (
+    let i = sparks.length - 1;
+    i >= 0;
+    i--
+  ) {
+    const p = sparks[i];
+
+    p.age += dt;
+
+    if (p.age > p.life) {
+      sparks.splice(i, 1);
+      continue;
+    }
+
+    p.vy += 320 * dt;
+
+    p.vx *=
+      1 -
+      0.8 * dt;
+
+    p.vy *=
+      1 -
+      0.4 * dt;
+
+    p.x +=
+      p.vx * dt;
+
+    p.y +=
+      p.vy * dt;
+
+    p.rot +=
+      p.spin * dt;
+
+    const a =
+      1 -
+      p.age / p.life;
+
+    if (p.emoji) {
+      drawEmoji(
+        p.emoji,
+        p.x,
+        p.y,
+        20 *
+          (0.5 + a * 0.5),
+        p.rot,
+        a
+      );
+    } else {
+      ctx.globalAlpha = a;
+      ctx.fillStyle = p.color;
+
+      ctx.beginPath();
+
+      ctx.arc(
+        p.x,
+        p.y,
+        p.size * a + 0.5,
+        0,
+        TAU
+      );
+
+      ctx.fill();
+    }
+  }
+
+  ctx.globalAlpha = 1;
+}
+
+// --------------------------------------------------
+// HUD
+// --------------------------------------------------
+
+function drawHUD(time) {
+  const th = THEMES[theme];
+
+  const prog =
+    clamp(
+      (time - sceneStart) /
+      SCENE_TIME
+    );
+
+  const bw =
+    clamp(
+      W * 0.3,
+      140,
+      320
+    );
+
+  const bx =
+    W / 2 -
+    bw / 2;
+
+  const by =
+    H - 46;
+
+  // Background.
+  ctx.fillStyle =
+    theme === "dark"
+      ? "rgba(244,239,230,0.12)"
+      : "rgba(43,38,34,0.12)";
+
+  ctx.beginPath();
+
+  ctx.roundRect(
+    bx,
+    by,
+    bw,
+    4,
+    2
+  );
+
+  ctx.fill();
+
+  // Progress.
+  ctx.fillStyle = ACCENT;
+
+  ctx.beginPath();
+
+  ctx.roundRect(
+    bx,
+    by,
+    bw * prog,
+    4,
+    2
+  );
+
+  ctx.fill();
+
+  // Scene indicators.
+  for (
+    let i = 0;
+    i < SCENES.length;
+    i++
+  ) {
+    ctx.fillStyle =
+      i === scene
+        ? ACCENT
+        : th.dim;
+
+    ctx.beginPath();
+
+    ctx.arc(
+      W / 2 +
+        (i - 2) * 18,
+
+      by - 14,
+
+      i === scene
+        ? 4
+        : 2.5,
+
+      0,
+      TAU
+    );
+
+    ctx.fill();
+  }
+
+  ctx.font =
+    `400 ${clamp(
+      W / 70,
+      11,
+      14
+    )}px system-ui, sans-serif`;
+
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+
+  ctx.fillStyle = th.dim;
+
+  ctx.fillText(
+    "Click: fireworks   |   Space / Arrows: next scene   |   T: theme   |   Move mouse to repel",
+    W / 2,
+    by + 22
+  );
+}
+
+// --------------------------------------------------
+// SPRITE PHYSICS
+// --------------------------------------------------
+
+function updateSprites(dt) {
+  const n = sprites.length;
+
+  // Slightly softer spring = less oscillation/work.
+  const K = 34;
+  const C = 9;
+
+  for (let i = 0; i < n; i++) {
+    const s = sprites[i];
+
+    const target =
+      formation(
+        scene,
+        i,
+        n,
+        t
+      );
+
+    const tx = target[0];
+    const ty = target[1];
+    const tz = target[2];
+
+    let ax =
+      (tx - s.x) * K -
+      s.vx * C;
+
+    let ay =
+      (ty - s.y) * K -
+      s.vy * C;
+
+    // --------------------------------------------
+    // MOUSE REPULSION
+    // --------------------------------------------
+
+    if (mouse.active) {
+      const dx =
+        s.x - mouse.x;
+
+      const dy =
+        s.y - mouse.y;
+
+      const distSq =
+        dx * dx +
+        dy * dy;
+
+      const radius = 150;
+
+      if (
+        distSq <
+          radius * radius &&
+        distSq > 1
+      ) {
+        const dist =
+          Math.sqrt(distSq);
+
+        const force =
+          (1 - dist / radius) *
+          6500;
+
+        ax +=
+          (dx / dist) *
+          force;
+
+        ay +=
+          (dy / dist) *
+          force;
+      }
+    }
+
+    // --------------------------------------------
+    // SHOCKWAVES
+    // --------------------------------------------
+
+    for (
+      let j = 0;
+      j < shocks.length;
+      j++
+    ) {
+      const sh = shocks[j];
+
+      const dx =
+        s.x - sh.x;
+
+      const dy =
+        s.y - sh.y;
+
+      const dist =
+        Math.sqrt(
+          dx * dx +
+          dy * dy
+        );
+
+      const delta =
+        Math.abs(
+          dist - sh.r
+        );
+
+      if (delta < 35) {
+        const force =
+          (1 -
+            sh.r /
+              sh.max) *
+          4000;
+
+        const safeDist =
+          dist || 1;
+
+        ax +=
+          (dx / safeDist) *
+          force;
+
+        ay +=
+          (dy / safeDist) *
+          force;
+      }
+    }
+
+    // --------------------------------------------
+    // INTEGRATION
+    // --------------------------------------------
+
+    s.vx +=
+      ax * dt;
+
+    s.vy +=
+      ay * dt;
+
+    s.x +=
+      s.vx * dt;
+
+    s.y +=
+      s.vy * dt;
+
+    s.z +=
+      (tz - s.z) *
+      Math.min(
+        1,
+        dt * 6
+      );
+
+    // Tiny trail.
+    if (
+      s.trail.length === 0 ||
+      Math.abs(s.x - s.trail[s.trail.length - 1].x) > 3 ||
+      Math.abs(s.y - s.trail[s.trail.length - 1].y) > 3
+    ) {
+      s.trail.push({
+        x: s.x,
+        y: s.y
+      });
+
+      if (s.trail.length > 4) {
+        s.trail.shift();
+      }
+    }
+  }
+}
+
+// --------------------------------------------------
+// SPRITE RENDERING
+// --------------------------------------------------
+
+function drawSprites() {
+  const intro =
+    clamp(t / 1);
+
+  const pop =
+    easeOutBack(
+      clamp(t / 1)
+    );
+
+  for (let i = 0; i < sprites.length; i++) {
+    const s = sprites[i];
+
+    // Lightweight trail.
+    for (
+      let k = 0;
+      k < s.trail.length;
+      k++
+    ) {
+      const p =
+        s.trail[k];
+
+      const f =
+        (k + 1) /
+        s.trail.length;
+
+      ctx.globalAlpha =
+        f *
+        0.12 *
+        intro;
+
+      ctx.fillStyle =
+        ACCENT;
+
+      ctx.beginPath();
+
+      ctx.arc(
+        p.x,
+        p.y,
+        Math.max(
+          s.size *
+            0.12 *
+            f *
+            s.z,
+          0.5
+        ),
+        0,
+        TAU
+      );
+
+      ctx.fill();
+    }
+
+    const rot =
+      Math.sin(
+        t * 1.5 +
+        s.wob
+      ) *
+      0.15 +
+      clamp(
+        s.vx / 1500,
+        -0.35,
+        0.35
+      );
+
+    const size =
+      Math.max(
+        s.size *
+          s.z *
+          pop,
+        1
+      );
+
+    drawEmoji(
+      s.e,
+      s.x,
+      s.y,
+      size,
+      rot,
+      intro
+    );
+  }
+
+  ctx.globalAlpha = 1;
+}
+
+// --------------------------------------------------
+// INPUT
+// --------------------------------------------------
+
+canvas.addEventListener(
+  "pointermove",
+  e => {
+    mouse.x = e.clientX;
+    mouse.y = e.clientY;
+    mouse.active = true;
+  },
+  { passive: true }
+);
+
+canvas.addEventListener(
+  "pointerleave",
+  () => {
+    mouse.active = false;
+    mouse.x = -9999;
+    mouse.y = -9999;
+  }
+);
+
+canvas.addEventListener(
+  "pointerdown",
+  e => {
+    burst(
+      e.clientX,
+      e.clientY
+    );
+  }
+);
+
+window.addEventListener(
+  "keydown",
+  e => {
+    if (
+      e.code === "Space" ||
+      e.code === "ArrowRight"
+    ) {
+      e.preventDefault();
+      nextScene();
+    }
+
+    else if (
+      e.code === "ArrowLeft"
+    ) {
+      nextScene(
+        (scene +
+          SCENES.length -
+          1) %
+        SCENES.length
+      );
+    }
+
+    else if (
+      e.key === "t" ||
+      e.key === "T"
+    ) {
+      theme =
+        theme === "dark"
+          ? "light"
+          : "dark";
+    }
+
+    else if (
+      /^[1-5]$/.test(e.key)
+    ) {
+      nextScene(
+        parseInt(e.key, 10) - 1
+      );
+    }
+  }
+);
+
+// --------------------------------------------------
+// MAIN LOOP
+// --------------------------------------------------
+
+function frame(now) {
+  // Cap frame delta so a tab switch doesn't
+  // cause a huge physics jump.
+  const dt =
+    Math.min(
+      (now - last) / 1000,
+      0.025
+    );
+
+  last = now;
+
+  t += dt;
+
+  // Scene transition.
+  if (
+    t - sceneStart >
+    SCENE_TIME
+  ) {
+    nextScene();
+  }
+
+  // Ambient shockwave.
+  if (
+    t > nextAutoShock
+  ) {
+    addShock(
+      rand(
+        W * 0.2,
+        W * 0.8
+      ),
+
+      rand(
+        H * 0.3,
+        H * 0.8
+      ),
+
+      260
+    );
+
+    nextAutoShock =
+      t + rand(4, 7);
+  }
+
+  // Shooting star.
+  if (
+    t > nextShooting
+  ) {
+    spawnShooting();
+
+    nextShooting =
+      t + rand(3, 6);
+  }
+
+  const cx = W / 2;
+  const cy = H / 2 - 20;
+
+  const intro =
+    easeInOut(
+      clamp(t / 1.2)
+    );
+
+  // --------------------------------------------
+  // RENDER
+  // --------------------------------------------
+
+  drawBackground(t);
+  drawStars(t);
+  drawBubbles(dt, t);
+  drawShooting(dt);
+
+  drawLogo(
+    cx,
+    cy,
+    t,
+    intro
+  );
+
+  updateSprites(dt);
+
+  drawShocks(dt);
+  drawSprites();
+  drawSparks(dt);
+
+  drawTitle(t);
+  drawHUD(t);
+
+  requestAnimationFrame(frame);
+}
+
+// --------------------------------------------------
+// START
+// --------------------------------------------------
+
+init();
+
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
